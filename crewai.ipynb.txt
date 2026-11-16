@@ -1,0 +1,459 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "GmjnueKntlbk"
+      },
+      "source": [
+        "# CrewAI Research Assistant — Llama 3.2 3B (Q4_K_M) with llama.cpp\n",
+        "\n",
+        "This Google Colab notebook demonstrates a single-agent CrewAI research task using **Llama 3.2 3B Instruct**, quantized as **Q4_K_M**, served locally by **llama.cpp**.\n",
+        "\n",
+        "**Runtime notes**\n",
+        "- Use a Colab runtime with enough RAM/disk for the GGUF model (roughly a few GB).\n",
+        "- A GPU is recommended but not required. The build cell selects CUDA when a CUDA GPU is available and otherwise builds CPU-only.\n",
+        "- The first setup/build and model download can take several minutes.\n",
+        "- The model is downloaded from Hugging Face; ensure the runtime has internet access.\n",
+        "- No Ollama, ChatOllama, or Qwen is used in this notebook.\n"
+      ],
+      "id": "GmjnueKntlbk"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VCP3hr_wtlbw"
+      },
+      "source": [
+        "## Cell 1"
+      ],
+      "id": "VCP3hr_wtlbw"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "qTk-ua7rtlb0"
+      },
+      "outputs": [],
+      "source": [
+        "import sys\n",
+        "print(\"Python version:\", sys.version)\n",
+        "assert (3, 10) <= sys.version_info[:2] < (3, 14), (\n",
+        "    \"CrewAI requires Python 3.10–3.13.\"\n",
+        ")\n",
+        "\n",
+        "%pip install -q crewai huggingface_hub requests"
+      ],
+      "id": "qTk-ua7rtlb0"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "RnNUXFSatlb7"
+      },
+      "source": [
+        "## Cell 2"
+      ],
+      "id": "RnNUXFSatlb7"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "IuRt8bvxtlb9"
+      },
+      "outputs": [],
+      "source": [
+        "from crewai import Agent, Task, Crew, Process, LLM\n",
+        "from importlib.metadata import version\n",
+        "\n",
+        "print(\"CrewAI installed successfully!\")\n",
+        "print(\"CrewAI version:\", version(\"crewai\"))"
+      ],
+      "id": "IuRt8bvxtlb9"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "MnyO7-SStlcA"
+      },
+      "source": [
+        "## Cell 3"
+      ],
+      "id": "MnyO7-SStlcA"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "G29I_c2htlcC"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "import subprocess\n",
+        "import shutil\n",
+        "from pathlib import Path\n",
+        "\n",
+        "HAS_CUDA = shutil.which(\"nvidia-smi\") is not None\n",
+        "if HAS_CUDA:\n",
+        "    gpu_check = subprocess.run(\n",
+        "        [\"nvidia-smi\"], capture_output=True, text=True, check=False\n",
+        "    )\n",
+        "    HAS_CUDA = gpu_check.returncode == 0\n",
+        "\n",
+        "print(\"CUDA GPU available:\", HAS_CUDA)\n",
+        "print(\"Build mode:\", \"CUDA\" if HAS_CUDA else \"CPU\")"
+      ],
+      "id": "G29I_c2htlcC"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Lv3IxocStlcF"
+      },
+      "source": [
+        "## Cell 4"
+      ],
+      "id": "Lv3IxocStlcF"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "HiIio9I9tlcH"
+      },
+      "outputs": [],
+      "source": [
+        "# Build the official llama.cpp server.\n",
+        "# This may take several minutes in a fresh Colab runtime.\n",
+        "%cd /content\n",
+        "if not Path(\"/content/llama.cpp\").exists():\n",
+        "    !git clone --depth 1 https://github.com/ggml-org/llama.cpp.git\n",
+        "\n",
+        "%cd /content/llama.cpp\n",
+        "!cmake --version\n",
+        "\n",
+        "if HAS_CUDA:\n",
+        "    !cmake -S . -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release\n",
+        "else:\n",
+        "    !cmake -S . -B build -DCMAKE_BUILD_TYPE=Release\n",
+        "\n",
+        "!cmake --build build --config Release --target llama-server -j 2\n",
+        "\n",
+        "server_candidates = [\n",
+        "    Path(\"/content/llama.cpp/build/bin/llama-server\"),\n",
+        "    Path(\"/content/llama.cpp/build/bin/server\"),\n",
+        "]\n",
+        "LLAMA_SERVER = next((p for p in server_candidates if p.exists()), None)\n",
+        "if LLAMA_SERVER is None:\n",
+        "    raise FileNotFoundError(\"Could not find the built llama-server executable.\")\n",
+        "print(\"llama.cpp server:\", LLAMA_SERVER)"
+      ],
+      "id": "HiIio9I9tlcH"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "D4ONPZ68tlcK"
+      },
+      "source": [
+        "## Cell 5"
+      ],
+      "id": "D4ONPZ68tlcK"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "42UyrPoQtlcN"
+      },
+      "outputs": [],
+      "source": [
+        "from huggingface_hub import hf_hub_download\n",
+        "\n",
+        "MODEL_REPO = \"bartowski/Llama-3.2-3B-Instruct-GGUF\"\n",
+        "MODEL_FILE = \"Llama-3.2-3B-Instruct-Q4_K_M.gguf\"\n",
+        "MODEL_PATH = hf_hub_download(\n",
+        "    repo_id=MODEL_REPO,\n",
+        "    filename=MODEL_FILE,\n",
+        "    local_dir=\"/content/models/llama-3.2-3b\",\n",
+        ")\n",
+        "print(\"Model downloaded to:\", MODEL_PATH)\n",
+        "print(\"Quantization: Q4_K_M\")"
+      ],
+      "id": "42UyrPoQtlcN"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "TLDYBHLvtlcQ"
+      },
+      "source": [
+        "## Cell 6"
+      ],
+      "id": "TLDYBHLvtlcQ"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "1U0m96ustlcS"
+      },
+      "outputs": [],
+      "source": [
+        "# Start llama.cpp's OpenAI-compatible HTTP server.\n",
+        "# If a previous run left a server process alive, restart the runtime or stop it first.\n",
+        "import time\n",
+        "import requests\n",
+        "\n",
+        "SERVER_PORT = 8000\n",
+        "SERVER_URL = f\"http://127.0.0.1:{SERVER_PORT}/v1\"\n",
+        "\n",
+        "server_args = [\n",
+        "    str(LLAMA_SERVER),\n",
+        "    \"-m\", MODEL_PATH,\n",
+        "    \"--host\", \"127.0.0.1\",\n",
+        "    \"--port\", str(SERVER_PORT),\n",
+        "    \"-c\", \"4096\",\n",
+        "    \"-a\", \"llama-3.2-3b-instruct\",\n",
+        "]\n",
+        "if HAS_CUDA:\n",
+        "    server_args += [\"-ngl\", \"99\"]\n",
+        "else:\n",
+        "    server_args += [\"-ngl\", \"0\"]\n",
+        "\n",
+        "server_log = open(\"/content/llama-server.log\", \"w\")\n",
+        "server_process = subprocess.Popen(\n",
+        "    server_args,\n",
+        "    stdout=server_log,\n",
+        "    stderr=subprocess.STDOUT,\n",
+        ")\n",
+        "\n",
+        "for attempt in range(90):\n",
+        "    try:\n",
+        "        health = requests.get(f\"{SERVER_URL}/models\", timeout=2)\n",
+        "        if health.ok:\n",
+        "            break\n",
+        "    except requests.RequestException:\n",
+        "        pass\n",
+        "    if server_process.poll() is not None:\n",
+        "        raise RuntimeError(\n",
+        "            \"llama-server exited during startup. Inspect /content/llama-server.log.\"\n",
+        "        )\n",
+        "    time.sleep(2)\n",
+        "else:\n",
+        "    raise TimeoutError(\n",
+        "        \"llama-server did not become ready. Inspect /content/llama-server.log.\"\n",
+        "    )\n",
+        "\n",
+        "print(\"llama.cpp server is ready:\", SERVER_URL)\n",
+        "print(health.json())"
+      ],
+      "id": "1U0m96ustlcS"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "xCTiYAfUtlcV"
+      },
+      "source": [
+        "## Cell 7"
+      ],
+      "id": "xCTiYAfUtlcV"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "HnPNGqSntlcX"
+      },
+      "outputs": [],
+      "source": [
+        "# CrewAI connects to llama.cpp through its OpenAI-compatible API.\n",
+        "# The API key is a placeholder; llama.cpp's local server does not require a real key.\n",
+        "llm = LLM(\n",
+        "    model=\"openai/llama-3.2-3b-instruct\",\n",
+        "    base_url=SERVER_URL,\n",
+        "    api_key=\"sk-no-key-required\",\n",
+        "    temperature=0.2,\n",
+        ")\n",
+        "\n",
+        "researcher = Agent(\n",
+        "    role=\"AI Research Assistant\",\n",
+        "    goal=\"Explain artificial intelligence concepts clearly and accurately.\",\n",
+        "    backstory=(\n",
+        "        \"You are a careful research assistant who explains technical concepts \"\n",
+        "        \"to beginners and distinguishes established facts from uncertainty.\"\n",
+        "    ),\n",
+        "    llm=llm,\n",
+        "    verbose=True,\n",
+        ")\n",
+        "\n",
+        "print(\"CrewAI agent configured with llama.cpp + Llama 3.2 3B Q4_K_M.\")"
+      ],
+      "id": "HnPNGqSntlcX"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "_-n1pZJftlcZ"
+      },
+      "source": [
+        "## Cell 8"
+      ],
+      "id": "_-n1pZJftlcZ"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "8YJERauhtlcb"
+      },
+      "outputs": [],
+      "source": [
+        "research_task = Task(\n",
+        "    description=(\n",
+        "        \"Explain what a Large Language Model (LLM) is in approximately 150 words. \"\n",
+        "        \"Include one practical example. Explain the concept in your own words and \"\n",
+        "        \"avoid claiming that LLMs always produce correct answers.\"\n",
+        "    ),\n",
+        "    expected_output=(\n",
+        "        \"A clear, accurate explanation of LLMs in approximately 150 words, \"\n",
+        "        \"including one practical example and a brief limitation.\"\n",
+        "    ),\n",
+        "    agent=researcher,\n",
+        ")\n",
+        "\n",
+        "print(\"Research task created successfully!\")"
+      ],
+      "id": "8YJERauhtlcb"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "zRK45cGdtlce"
+      },
+      "source": [
+        "## Cell 9"
+      ],
+      "id": "zRK45cGdtlce"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "g5H65B5Htlcf"
+      },
+      "outputs": [],
+      "source": [
+        "crew = Crew(\n",
+        "    agents=[researcher],\n",
+        "    tasks=[research_task],\n",
+        "    process=Process.sequential,\n",
+        "    verbose=True,\n",
+        ")\n",
+        "\n",
+        "print(\"Crew assembled successfully!\")"
+      ],
+      "id": "g5H65B5Htlcf"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "nZG18Uuatlch"
+      },
+      "source": [
+        "## Cell 10"
+      ],
+      "id": "nZG18Uuatlch"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "kAEZyfS5tlcj"
+      },
+      "outputs": [],
+      "source": [
+        "result = await crew.kickoff_async()\n",
+        "\n",
+        "print(\"\\n========== RESEARCH RESULTS ==========\\n\")\n",
+        "print(result)"
+      ],
+      "id": "kAEZyfS5tlcj"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "qmQ_2FKmtlcm"
+      },
+      "source": [
+        "## Cell 11"
+      ],
+      "id": "qmQ_2FKmtlcm"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "CWr8Bk02tlcn"
+      },
+      "outputs": [],
+      "source": [
+        "# Optional smoke test: query the local OpenAI-compatible endpoint directly.\n",
+        "# This helps separate server/API issues from CrewAI configuration issues.\n",
+        "response = requests.post(\n",
+        "    f\"{SERVER_URL}/chat/completions\",\n",
+        "    json={\n",
+        "        \"model\": \"llama-3.2-3b-instruct\",\n",
+        "        \"messages\": [\n",
+        "            {\"role\": \"user\", \"content\": \"Reply with one short sentence confirming you are running.\"}\n",
+        "        ],\n",
+        "        \"temperature\": 0.1,\n",
+        "        \"max_tokens\": 80,\n",
+        "    },\n",
+        "    timeout=120,\n",
+        ")\n",
+        "response.raise_for_status()\n",
+        "print(response.json()[\"choices\"][0][\"message\"][\"content\"])"
+      ],
+      "id": "CWr8Bk02tlcn"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "kT21fVlxtlcs"
+      },
+      "source": [
+        "## Troubleshooting\n",
+        "\n",
+        "- **Build fails:** Restart the Colab runtime and rerun setup. If CUDA compilation fails on a particular runtime image, change Cell 4 to a CPU-only build by setting `HAS_CUDA = False`, then rebuild.\n",
+        "- **Model download fails:** Check the repository and filename in Cell 5 and verify internet access.\n",
+        "- **Server does not start:** Inspect `/content/llama-server.log`. GPU memory may be insufficient; try a CPU runtime or reduce context length from `4096` to `2048`.\n",
+        "- **CrewAI cannot connect:** Confirm Cell 6 reports the server as ready and that Cell 7 uses the same `SERVER_URL`.\n",
+        "- **Runtime reset:** Colab deletes the built server and downloaded model when its temporary runtime storage is cleared; rerun the setup cells.\n",
+        "\n",
+        "The notebook builds the official `llama.cpp` server and uses its OpenAI-compatible endpoint. The model output is generated by the local GGUF model, not by a hosted Ollama service.\n"
+      ],
+      "id": "kT21fVlxtlcs"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python",
+      "version": "3.10+"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
