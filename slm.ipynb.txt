@@ -1,0 +1,228 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "JD0S1YLo5St0"
+      },
+      "source": [
+        "## Cell 1"
+      ],
+      "id": "JD0S1YLo5St0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ZWr5zyFG5SuF"
+      },
+      "outputs": [],
+      "source": [
+        "!pip -q install -U transformers accelerate"
+      ],
+      "id": "ZWr5zyFG5SuF"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VmTc8K9y5SuM"
+      },
+      "source": [
+        "## Cell 2"
+      ],
+      "id": "VmTc8K9y5SuM"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "DSJKehvE5SuQ"
+      },
+      "outputs": [],
+      "source": [
+        "import torch\n",
+        "from transformers import AutoTokenizer, AutoModelForCausalLM\n",
+        "\n",
+        "MODEL_NAME = \"unsloth/Llama-3.2-1B-Instruct\"\n",
+        "\n",
+        "print(\"PyTorch version:\", torch.__version__)\n",
+        "print(\"Device:\", \"CPU\")\n",
+        "print(\"Model:\", MODEL_NAME)"
+      ],
+      "id": "DSJKehvE5SuQ"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "O3MlL9te5SuU"
+      },
+      "source": [
+        "## Cell 3"
+      ],
+      "id": "O3MlL9te5SuU"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "xBDqsK3L5SuX"
+      },
+      "outputs": [],
+      "source": [
+        "tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)\n",
+        "\n",
+        "print(\"Tokenizer loaded successfully!\")\n",
+        "print(\"Vocabulary size:\", tokenizer.vocab_size)"
+      ],
+      "id": "xBDqsK3L5SuX"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "HtP0XiAv5Sue"
+      },
+      "source": [
+        "## Cell 4"
+      ],
+      "id": "HtP0XiAv5Sue"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "L_3Io1Ja5Suj"
+      },
+      "outputs": [],
+      "source": [
+        "model = AutoModelForCausalLM.from_pretrained(\n",
+        "    MODEL_NAME,\n",
+        "    torch_dtype=torch.float32\n",
+        ")\n",
+        "\n",
+        "model.eval()\n",
+        "\n",
+        "print(\"Llama model loaded successfully!\")\n",
+        "print(\"Parameters:\", sum(p.numel() for p in model.parameters()))"
+      ],
+      "id": "L_3Io1Ja5Suj"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Q6Zob4wq5Suo"
+      },
+      "source": [
+        "## Cell 5"
+      ],
+      "id": "Q6Zob4wq5Suo"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "SejcQqwY5Sus"
+      },
+      "outputs": [],
+      "source": [
+        "def chat(prompt):\n",
+        "    messages = [\n",
+        "        {\"role\": \"user\", \"content\": prompt}\n",
+        "    ]\n",
+        "\n",
+        "    inputs = tokenizer.apply_chat_template(\n",
+        "        messages,\n",
+        "        add_generation_prompt=True,\n",
+        "        return_tensors=\"pt\",\n",
+        "        return_dict=True\n",
+        "    )\n",
+        "\n",
+        "    outputs = model.generate(\n",
+        "        **inputs,\n",
+        "        max_new_tokens=150,\n",
+        "        do_sample=True,\n",
+        "        temperature=0.7\n",
+        "    )\n",
+        "\n",
+        "    response = tokenizer.decode(\n",
+        "        outputs[0][inputs[\"input_ids\"].shape[-1]:],\n",
+        "        skip_special_tokens=True\n",
+        "    )\n",
+        "\n",
+        "    return response.strip()\n",
+        "\n",
+        "print(\"Chatbot function fixed successfully!\")"
+      ],
+      "id": "SejcQqwY5Sus"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "-PjRjTBH5Suw"
+      },
+      "source": [
+        "## Cell 6"
+      ],
+      "id": "-PjRjTBH5Suw"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Je7FVb2u5Suy"
+      },
+      "outputs": [],
+      "source": [
+        "response = chat(\"Hello! What can you do?\")\n",
+        "\n",
+        "print(\"LLAMA CHATBOT:\")\n",
+        "print(response)"
+      ],
+      "id": "Je7FVb2u5Suy"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VXlsNIem5Su0"
+      },
+      "source": [
+        "## Cell 7"
+      ],
+      "id": "VXlsNIem5Su0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "D2Wg5DV65Su2"
+      },
+      "outputs": [],
+      "source": [
+        "while True:\n",
+        "    prompt = input(\"\\nYou: \")\n",
+        "\n",
+        "    if prompt.lower() in [\"exit\", \"quit\", \"stop\"]:\n",
+        "        print(\"Chatbot: Goodbye!\")\n",
+        "        break\n",
+        "\n",
+        "    response = chat(prompt)\n",
+        "    print(\"\\nLlama:\", response)"
+      ],
+      "id": "D2Wg5DV65Su2"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
