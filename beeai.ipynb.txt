@@ -1,0 +1,462 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "kN9_dcsruQNF"
+      },
+      "source": [
+        "# BeeAI Learning Assistant — Llama 3.2 3B (Q4_K_M) with llama.cpp\n",
+        "\n",
+        "This cleaned-up Google Colab notebook adapts the uploaded BeeAI example to use **Llama 3.2 3B Instruct (Q4_K_M)** served locally by **llama.cpp**. It removes the Ollama server, ChatOllama-style configuration, and Qwen model.\n",
+        "\n",
+        "## Before you run\n",
+        "- Use a Colab runtime with enough disk space and RAM for the GGUF model.\n",
+        "- A GPU is recommended. The build cell attempts a CUDA build when a CUDA GPU is available; otherwise it builds CPU-only.\n",
+        "- The initial build and model download may take several minutes.\n",
+        "- This notebook uses BeeAI's `ChatModel` OpenAI backend against llama.cpp's OpenAI-compatible API. If your installed BeeAI version changes its backend API, see the troubleshooting note at the end.\n"
+      ],
+      "id": "kN9_dcsruQNF"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "i8IH5QG5uQN5"
+      },
+      "source": [
+        "## Cell 1"
+      ],
+      "id": "i8IH5QG5uQN5"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "FBTHDvqTuQN8"
+      },
+      "source": [
+        "# Install system build tools and Python dependencies.\n",
+        "!sudo apt-get update -qq\n",
+        "!sudo apt-get install -y -qq cmake build-essential git\n",
+        "\n",
+        "%pip install -q beeai-framework huggingface_hub requests"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "FBTHDvqTuQN8"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "3ovqEDYXuQOC"
+      },
+      "source": [
+        "## Cell 2"
+      ],
+      "id": "3ovqEDYXuQOC"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "87exNr1LuQOE"
+      },
+      "source": [
+        "import os\n",
+        "import sys\n",
+        "import time\n",
+        "import shutil\n",
+        "import subprocess\n",
+        "from pathlib import Path\n",
+        "\n",
+        "import requests\n",
+        "import beeai_framework\n",
+        "\n",
+        "print(\"Python:\", sys.version)\n",
+        "print(\"BeeAI installed successfully!\")\n",
+        "print(\"CUDA tool available:\", shutil.which(\"nvidia-smi\") is not None)"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "87exNr1LuQOE"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "v_FCQDsZuQOH"
+      },
+      "source": [
+        "## Cell 3"
+      ],
+      "id": "v_FCQDsZuQOH"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "-B5x46jXuQOI"
+      },
+      "source": [
+        "# Build llama.cpp. A fresh Colab runtime may take several minutes here.\n",
+        "HAS_CUDA = shutil.which(\"nvidia-smi\") is not None\n",
+        "if HAS_CUDA:\n",
+        "    gpu_check = subprocess.run(\n",
+        "        [\"nvidia-smi\"], capture_output=True, text=True, check=False\n",
+        "    )\n",
+        "    HAS_CUDA = gpu_check.returncode == 0\n",
+        "\n",
+        "LLAMA_DIR = Path(\"/content/llama.cpp\")\n",
+        "if not LLAMA_DIR.exists():\n",
+        "    subprocess.run(\n",
+        "        [\"git\", \"clone\", \"--depth\", \"1\", \"https://github.com/ggml-org/llama.cpp.git\", str(LLAMA_DIR)],\n",
+        "        check=True,\n",
+        "    )\n",
+        "\n",
+        "build_args = [\n",
+        "    \"cmake\", \"-S\", str(LLAMA_DIR), \"-B\", str(LLAMA_DIR / \"build\"),\n",
+        "    \"-DCMAKE_BUILD_TYPE=Release\",\n",
+        "    \"-DGGML_CUDA=ON\" if HAS_CUDA else \"-DGGML_CUDA=OFF\",\n",
+        "]\n",
+        "subprocess.run(build_args, check=True)\n",
+        "subprocess.run(\n",
+        "    [\"cmake\", \"--build\", str(LLAMA_DIR / \"build\"), \"--config\", \"Release\",\n",
+        "     \"--target\", \"llama-server\", \"-j\", \"2\"],\n",
+        "    check=True,\n",
+        ")\n",
+        "\n",
+        "LLAMA_SERVER = LLAMA_DIR / \"build\" / \"bin\" / \"llama-server\"\n",
+        "if not LLAMA_SERVER.exists():\n",
+        "    raise FileNotFoundError(f\"llama-server executable not found at {LLAMA_SERVER}\")\n",
+        "\n",
+        "print(\"Build complete:\", LLAMA_SERVER)\n",
+        "print(\"CUDA enabled:\", HAS_CUDA)"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "-B5x46jXuQOI"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "M7--W0iduQOM"
+      },
+      "source": [
+        "## Cell 4"
+      ],
+      "id": "M7--W0iduQOM"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "GLCsqvTruQOO"
+      },
+      "source": [
+        "# Download Llama 3.2 3B Instruct in Q4_K_M GGUF format.\n",
+        "from huggingface_hub import hf_hub_download\n",
+        "\n",
+        "MODEL_REPO = \"bartowski/Llama-3.2-3B-Instruct-GGUF\"\n",
+        "MODEL_FILE = \"Llama-3.2-3B-Instruct-Q4_K_M.gguf\"\n",
+        "MODEL_PATH = hf_hub_download(\n",
+        "    repo_id=MODEL_REPO,\n",
+        "    filename=MODEL_FILE,\n",
+        "    local_dir=\"/content/models/llama-3.2-3b\",\n",
+        ")\n",
+        "\n",
+        "print(\"Model:\", MODEL_PATH)\n",
+        "print(\"Quantization: Q4_K_M\")"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "GLCsqvTruQOO"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "cqSfomzFuQOR"
+      },
+      "source": [
+        "## Cell 5"
+      ],
+      "id": "cqSfomzFuQOR"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "pK5sOu-auQOU"
+      },
+      "source": [
+        "# Launch llama.cpp's local OpenAI-compatible server.\n",
+        "SERVER_PORT = 8000\n",
+        "SERVER_URL = f\"http://127.0.0.1:{SERVER_PORT}/v1\"\n",
+        "SERVER_LOG_PATH = \"/content/llama-server.log\"\n",
+        "\n",
+        "server_args = [\n",
+        "    str(LLAMA_SERVER),\n",
+        "    \"-m\", MODEL_PATH,\n",
+        "    \"--host\", \"127.0.0.1\",\n",
+        "    \"--port\", str(SERVER_PORT),\n",
+        "    \"-c\", \"4096\",\n",
+        "    \"-a\", \"llama-3.2-3b-instruct\",\n",
+        "    \"-ngl\", \"99\" if HAS_CUDA else \"0\",\n",
+        "]\n",
+        "\n",
+        "server_log = open(SERVER_LOG_PATH, \"w\")\n",
+        "server_process = subprocess.Popen(\n",
+        "    server_args, stdout=server_log, stderr=subprocess.STDOUT\n",
+        ")\n",
+        "\n",
+        "for _ in range(90):\n",
+        "    try:\n",
+        "        server_response = requests.get(f\"{SERVER_URL}/models\", timeout=2)\n",
+        "        if server_response.ok:\n",
+        "            break\n",
+        "    except requests.RequestException:\n",
+        "        pass\n",
+        "    if server_process.poll() is not None:\n",
+        "        raise RuntimeError(f\"llama-server exited. Check {SERVER_LOG_PATH}\")\n",
+        "    time.sleep(2)\n",
+        "else:\n",
+        "    raise TimeoutError(f\"llama-server did not start. Check {SERVER_LOG_PATH}\")\n",
+        "\n",
+        "print(\"llama.cpp server is ready:\", SERVER_URL)\n",
+        "print(server_response.json())"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "pK5sOu-auQOU"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "l4XSjUiZuQOW"
+      },
+      "source": [
+        "## Cell 6"
+      ],
+      "id": "l4XSjUiZuQOW"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "zprj74KguQOY"
+      },
+      "source": [
+        "# Configure BeeAI to use the local OpenAI-compatible llama.cpp endpoint.\n",
+        "# The key is a placeholder; the local llama.cpp server does not require a real key.\n",
+        "os.environ[\"OPENAI_API_KEY\"] = \"sk-no-key-required\"\n",
+        "os.environ[\"OPENAI_BASE_URL\"] = SERVER_URL\n",
+        "\n",
+        "from beeai_framework.agents.requirement import RequirementAgent\n",
+        "from beeai_framework.backend import ChatModel\n",
+        "\n",
+        "MODEL_ID = \"llama-3.2-3b-instruct\"\n",
+        "llm = ChatModel.from_name(f\"openai:{MODEL_ID}\")\n",
+        "\n",
+        "agent = RequirementAgent(\n",
+        "    llm=llm,\n",
+        "    role=\"AI Learning Assistant\",\n",
+        "    instructions=(\n",
+        "        \"Explain artificial intelligence concepts clearly to beginners. \"\n",
+        "        \"Be accurate, state uncertainty when appropriate, and use practical examples.\"\n",
+        "    ),\n",
+        ")\n",
+        "\n",
+        "print(\"BeeAI agent configured for Llama 3.2 3B via llama.cpp.\")"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "zprj74KguQOY"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "-w-J05AIuQOa"
+      },
+      "source": [
+        "## Cell 7"
+      ],
+      "id": "-w-J05AIuQOa"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "kftPQJSLuQOc"
+      },
+      "source": [
+        "# Ask the agent a simple learning question.\n",
+        "response = await agent.run(\n",
+        "    \"Explain what an AI agent is in approximately 100 words. \"\n",
+        "    \"Include one practical example.\"\n",
+        ")\n",
+        "\n",
+        "print(\"========== BEEAI AGENT RESPONSE ==========\\n\")\n",
+        "print(response)"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "kftPQJSLuQOc"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "S66lJMSTuQOe"
+      },
+      "source": [
+        "## Cell 8"
+      ],
+      "id": "S66lJMSTuQOe"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "JGFFLBLWuQOg"
+      },
+      "source": [
+        "# Define a calculator tool with restricted arithmetic parsing.\n",
+        "# This avoids evaluating arbitrary Python expressions with eval().\n",
+        "import ast\n",
+        "import operator\n",
+        "from beeai_framework.tools import tool, StringToolOutput\n",
+        "\n",
+        "_ALLOWED_OPERATORS = {\n",
+        "    ast.Add: operator.add,\n",
+        "    ast.Sub: operator.sub,\n",
+        "    ast.Mult: operator.mul,\n",
+        "    ast.Div: operator.truediv,\n",
+        "    ast.FloorDiv: operator.floordiv,\n",
+        "    ast.Mod: operator.mod,\n",
+        "    ast.Pow: operator.pow,\n",
+        "    ast.USub: operator.neg,\n",
+        "    ast.UAdd: operator.pos,\n",
+        "}\n",
+        "\n",
+        "def safe_calculate(expression: str):\n",
+        "    tree = ast.parse(expression, mode=\"eval\")\n",
+        "\n",
+        "    def visit(node):\n",
+        "        if isinstance(node, ast.Expression):\n",
+        "            return visit(node.body)\n",
+        "        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):\n",
+        "            return node.value\n",
+        "        if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED_OPERATORS:\n",
+        "            left, right = visit(node.left), visit(node.right)\n",
+        "            if isinstance(node.op, ast.Pow) and abs(right) > 10:\n",
+        "                raise ValueError(\"Exponent too large.\")\n",
+        "            return _ALLOWED_OPERATORS[type(node.op)](left, right)\n",
+        "        if isinstance(node, ast.UnaryOp) and type(node.op) in _ALLOWED_OPERATORS:\n",
+        "            return _ALLOWED_OPERATORS[type(node.op)](visit(node.operand))\n",
+        "        raise ValueError(\"Only basic arithmetic expressions are allowed.\")\n",
+        "\n",
+        "    return visit(tree)\n",
+        "\n",
+        "@tool\n",
+        "def calculator(expression: str) -> StringToolOutput:\n",
+        "    'Calculate a basic arithmetic expression such as 23 * 47.'\n",
+        "    try:\n",
+        "        result = safe_calculate(expression)\n",
+        "        return StringToolOutput(result=str(result))\n",
+        "    except Exception as exc:\n",
+        "        return StringToolOutput(result=f\"Could not calculate expression: {exc}\")\n",
+        "\n",
+        "print(\"Calculator tool created successfully.\")"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "JGFFLBLWuQOg"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "uOmAhx_QuQOj"
+      },
+      "source": [
+        "## Cell 9"
+      ],
+      "id": "uOmAhx_QuQOj"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "hPlHziAmuQOk"
+      },
+      "source": [
+        "# Create a tool-enabled agent and ask it to calculate a result.\n",
+        "tool_agent = RequirementAgent(\n",
+        "    llm=llm,\n",
+        "    tools=[calculator],\n",
+        "    role=\"AI Learning Assistant\",\n",
+        "    instructions=(\n",
+        "        \"Explain concepts clearly. When a mathematical calculation is requested, \"\n",
+        "        \"use the calculator tool rather than calculating mentally.\"\n",
+        "    ),\n",
+        ")\n",
+        "\n",
+        "tool_response = await tool_agent.run(\n",
+        "    \"Use the calculator tool to calculate 23 * 47. Show the result.\"\n",
+        ")\n",
+        "\n",
+        "print(\"========== TOOL-ENABLED AGENT ==========\\n\")\n",
+        "print(tool_response.last_message.text)"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "hPlHziAmuQOk"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "w_oFZDYsuQOn"
+      },
+      "source": [
+        "## Cell 10"
+      ],
+      "id": "w_oFZDYsuQOn"
+    },
+    {
+      "cell_type": "code",
+      "metadata": {
+        "id": "tTingKhsuQOp"
+      },
+      "source": [
+        "# Optional health check for the local model endpoint.\n",
+        "health = requests.get(f\"{SERVER_URL}/models\", timeout=10)\n",
+        "health.raise_for_status()\n",
+        "print(\"llama.cpp endpoint is healthy.\")\n",
+        "print(health.json())"
+      ],
+      "execution_count": null,
+      "outputs": [],
+      "id": "tTingKhsuQOp"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "1vfqh3DHuQOr"
+      },
+      "source": [
+        "## Troubleshooting\n",
+        "\n",
+        "- **Build errors:** Restart the Colab runtime and rerun setup. If CUDA compilation fails, set `HAS_CUDA = False` in Cell 3 and rebuild.\n",
+        "- **Model download fails:** Verify internet access and the Hugging Face repository/filename in Cell 4.\n",
+        "- **Server fails to start:** Read `/content/llama-server.log`. If GPU memory is insufficient, use a CPU runtime or reduce context size in Cell 5.\n",
+        "- **BeeAI cannot connect:** Confirm Cell 5 reports the server as ready and that `OPENAI_BASE_URL` in Cell 6 matches `SERVER_URL`.\n",
+        "- **Backend name differs in your BeeAI version:** This notebook uses `ChatModel.from_name(\"openai:llama-3.2-3b-instruct\")` and standard `OPENAI_BASE_URL` / `OPENAI_API_KEY` variables. If your installed version uses different provider syntax, consult the BeeAI Framework documentation for that version.\n",
+        "\n",
+        "This notebook has been structurally checked, but not executed end-to-end in a live Colab runtime.\n"
+      ],
+      "id": "1vfqh3DHuQOr"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
