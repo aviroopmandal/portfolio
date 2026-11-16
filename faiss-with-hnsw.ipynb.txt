@@ -1,0 +1,426 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "68ci_kW7hODp"
+      },
+      "source": [
+        "## Cell 1\n"
+      ],
+      "id": "68ci_kW7hODp"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "i8HENmgBhOD9"
+      },
+      "outputs": [],
+      "source": [
+        "%pip install -q faiss-cpu sentence-transformers"
+      ],
+      "id": "i8HENmgBhOD9"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Eo6-nhIUhOEF"
+      },
+      "source": [
+        "## Cell 2\n"
+      ],
+      "id": "Eo6-nhIUhOEF"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "dveJ6ZAthOEI"
+      },
+      "outputs": [],
+      "source": [
+        "import numpy as np\n",
+        "import faiss\n",
+        "from sentence_transformers import SentenceTransformer\n",
+        "\n",
+        "model = SentenceTransformer(\n",
+        "    \"all-MiniLM-L6-v2\",\n",
+        "    device=\"cpu\"\n",
+        ")\n",
+        "\n",
+        "documents = [\n",
+        "    \"Machine learning allows computers to learn from data.\",\n",
+        "    \"Deep learning uses neural networks.\",\n",
+        "    \"Python is a popular programming language.\",\n",
+        "    \"Vector databases store numerical embeddings.\",\n",
+        "    \"FAISS performs efficient similarity searches.\",\n",
+        "    \"HNSW is a graph-based nearest neighbour algorithm.\"\n",
+        "]\n",
+        "\n",
+        "embeddings = model.encode(\n",
+        "    documents,\n",
+        "    convert_to_numpy=True,\n",
+        "    normalize_embeddings=True\n",
+        ").astype(\"float32\")\n",
+        "\n",
+        "print(\"Embedding shape:\", embeddings.shape)"
+      ],
+      "id": "dveJ6ZAthOEI"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "eQD0yihshOEN"
+      },
+      "source": [
+        "## Cell 3\n"
+      ],
+      "id": "eQD0yihshOEN"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "37fzrkdahOEQ"
+      },
+      "outputs": [],
+      "source": [
+        "dimension = embeddings.shape[1]\n",
+        "\n",
+        "index = faiss.IndexFlatIP(dimension)\n",
+        "\n",
+        "index.add(embeddings)\n",
+        "\n",
+        "print(\"Vectors stored:\", index.ntotal)"
+      ],
+      "id": "37fzrkdahOEQ"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "N6pP4ZGshOEU"
+      },
+      "source": [
+        "## Cell 4\n"
+      ],
+      "id": "N6pP4ZGshOEU"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "-dVeuGJnhOEY"
+      },
+      "outputs": [],
+      "source": [
+        "query = \"How do computers learn from information?\"\n",
+        "\n",
+        "query_embedding = model.encode(\n",
+        "    [query],\n",
+        "    convert_to_numpy=True,\n",
+        "    normalize_embeddings=True\n",
+        ").astype(\"float32\")\n",
+        "\n",
+        "distances, indices = index.search(query_embedding, k=3)\n",
+        "\n",
+        "for position, score in zip(indices[0], distances[0]):\n",
+        "    print(\"Document:\", documents[position])\n",
+        "    print(\"Similarity:\", round(float(score), 4))\n",
+        "    print()"
+      ],
+      "id": "-dVeuGJnhOEY"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "OHpOKli7hOEd"
+      },
+      "source": [
+        "## Cell 5\n"
+      ],
+      "id": "OHpOKli7hOEd"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "1OIueDX_hOEg"
+      },
+      "outputs": [],
+      "source": [
+        "dimension = embeddings.shape[1]\n",
+        "\n",
+        "index_hnsw = faiss.IndexHNSWFlat(\n",
+        "    dimension,\n",
+        "    32,\n",
+        "    faiss.METRIC_INNER_PRODUCT\n",
+        ")\n",
+        "\n",
+        "index_hnsw.hnsw.efConstruction = 100\n",
+        "index_hnsw.hnsw.efSearch = 50\n",
+        "\n",
+        "index_hnsw.add(embeddings)\n",
+        "\n",
+        "print(\"Vectors stored:\", index_hnsw.ntotal)"
+      ],
+      "id": "1OIueDX_hOEg"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "WHZejlzhhOEk"
+      },
+      "source": [
+        "## Cell 6\n"
+      ],
+      "id": "WHZejlzhhOEk"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "WGsQPJUwhOEn"
+      },
+      "outputs": [],
+      "source": [
+        "distances, indices = index_hnsw.search(\n",
+        "    query_embedding,\n",
+        "    k=3\n",
+        ")\n",
+        "\n",
+        "for position, score in zip(indices[0], distances[0]):\n",
+        "    print(\"Document:\", documents[position])\n",
+        "    print(\"Similarity:\", round(float(score), 4))\n",
+        "    print()"
+      ],
+      "id": "WGsQPJUwhOEn"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "FZpluuzFhOEp"
+      },
+      "source": [
+        "## Cell 7\n"
+      ],
+      "id": "FZpluuzFhOEp"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "zyluB6-yhOEr"
+      },
+      "outputs": [],
+      "source": [
+        "%pip install -q chromadb sentence-transformers"
+      ],
+      "id": "zyluB6-yhOEr"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "mEjO9IR_hOEt"
+      },
+      "source": [
+        "## Cell 8\n"
+      ],
+      "id": "mEjO9IR_hOEt"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "WAeZZhR9hOEu"
+      },
+      "outputs": [],
+      "source": [
+        "import chromadb\n",
+        "\n",
+        "print(\"ChromaDB version:\", chromadb.__version__)\n",
+        "print(\"ChromaDB imported successfully!\")"
+      ],
+      "id": "WAeZZhR9hOEu"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "IcTGxq2yhOEw"
+      },
+      "source": [
+        "## Cell 9\n"
+      ],
+      "id": "IcTGxq2yhOEw"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "sTqGA_ZqhOEy"
+      },
+      "outputs": [],
+      "source": [
+        "import chromadb\n",
+        "\n",
+        "client = chromadb.PersistentClient(\n",
+        "    path=\"/content/hnsw_database\"\n",
+        ")\n",
+        "\n",
+        "collection = client.create_collection(\n",
+        "    name=\"hnsw_books\",\n",
+        "    configuration={\n",
+        "        \"hnsw\": {\n",
+        "            \"space\": \"cosine\",\n",
+        "            \"ef_construction\": 100,\n",
+        "            \"max_neighbors\": 16,\n",
+        "            \"ef_search\": 50\n",
+        "        }\n",
+        "    }\n",
+        ")\n",
+        "\n",
+        "print(\"HNSW collection created!\")"
+      ],
+      "id": "sTqGA_ZqhOEy"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Sh1SmCkwhOE0"
+      },
+      "source": [
+        "## Cell 10\n"
+      ],
+      "id": "Sh1SmCkwhOE0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "4R9h6UPhhOE2"
+      },
+      "outputs": [],
+      "source": [
+        "collection.add(\n",
+        "    ids=[f\"book{i}\" for i in range(len(documents))],\n",
+        "    documents=documents\n",
+        ")\n",
+        "\n",
+        "results = collection.query(\n",
+        "    query_texts=[\"How do computers learn from information?\"],\n",
+        "    n_results=3\n",
+        ")\n",
+        "\n",
+        "for document in results[\"documents\"][0]:\n",
+        "    print(document)"
+      ],
+      "id": "4R9h6UPhhOE2"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "aSzx4_01hOE4"
+      },
+      "source": [
+        "## Cell 11\n"
+      ],
+      "id": "aSzx4_01hOE4"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "gP6HXr9AhOE6"
+      },
+      "outputs": [],
+      "source": [
+        "documents = [\n",
+        "    \"The Hobbit is a fantasy novel about Bilbo Baggins.\",\n",
+        "    \"1984 is a dystopian novel by George Orwell.\",\n",
+        "    \"Pride and Prejudice explores love and social class.\",\n",
+        "    \"Dune is a science fiction novel about a desert planet.\",\n",
+        "    \"Animal Farm is a political allegory about totalitarianism.\",\n",
+        "    \"Harry Potter follows a young wizard attending Hogwarts.\"\n",
+        "]\n",
+        "\n",
+        "collection.add(\n",
+        "    ids=[\"book1\", \"book2\", \"book3\", \"book4\", \"book5\", \"book6\"],\n",
+        "    documents=documents\n",
+        ")\n",
+        "\n",
+        "print(\"Books added:\", collection.count())"
+      ],
+      "id": "gP6HXr9AhOE6"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "KuSCT543hOE8"
+      },
+      "source": [
+        "## Cell 12\n"
+      ],
+      "id": "KuSCT543hOE8"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Ffw6ETGehOE-"
+      },
+      "outputs": [],
+      "source": [
+        "for document, distance in zip(\n",
+        "    results[\"documents\"][0],\n",
+        "    results[\"distances\"][0]\n",
+        "):\n",
+        "    print(\"Book:\", document)\n",
+        "    print(\"Distance:\", round(distance, 4))\n",
+        "    print()"
+      ],
+      "id": "Ffw6ETGehOE-"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "UnFutp6nhOE_"
+      },
+      "source": [
+        "## Cell 13\n"
+      ],
+      "id": "UnFutp6nhOE_"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "TaOX1SeshOFB"
+      },
+      "outputs": [],
+      "source": [
+        "results = collection.query(\n",
+        "    query_texts=[\"A story about an authoritarian government\"],\n",
+        "    n_results=3\n",
+        ")\n",
+        "\n",
+        "for document in results[\"documents\"][0]:\n",
+        "    print(document)"
+      ],
+      "id": "TaOX1SeshOFB"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
