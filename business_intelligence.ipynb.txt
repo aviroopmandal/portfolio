@@ -1,0 +1,1126 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "id": "c338d45a",
+      "metadata": {
+        "id": "c338d45a"
+      },
+      "source": [
+        "# Business Intelligence\n",
+        "\n",
+        "A local-first business intelligence notebook using **Llama 3.2 3B Instruct (GGUF, Q4_K_M)**, `llama.cpp`, LangChain, SQLite and pandas.\n",
+        "\n",
+        "It keeps the business database, SQL and calculation tools, agent, charts, PDF report, and Colab export workflow. The language model runs locally in the Colab runtime; no hosted model API key is required.\n",
+        "\n",
+        "**Runtime:** Google Colab CPU. The quantised model file is approximately 2.02 GB; model loading and generation may take time on CPU."
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "ffe8c441",
+      "metadata": {
+        "id": "ffe8c441"
+      },
+      "source": [
+        "## 1. Install dependencies"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "78365756",
+      "metadata": {
+        "id": "78365756"
+      },
+      "source": [
+        "## Cell 1"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "1e9ad818",
+      "metadata": {
+        "id": "1e9ad818"
+      },
+      "outputs": [],
+      "source": [
+        "%pip install -q --upgrade \"langchain>=1.0,<2.0\" langchain-community huggingface_hub pandas matplotlib reportlab nbformat"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "26ab2f66",
+      "metadata": {
+        "id": "26ab2f66"
+      },
+      "source": [
+        "## Cell 2"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "1aa568a5",
+      "metadata": {
+        "id": "1aa568a5"
+      },
+      "outputs": [],
+      "source": [
+        "%pip install -q --prefer-binary llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "508111dc",
+      "metadata": {
+        "id": "508111dc"
+      },
+      "source": [
+        "## 2. Initialise the project"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "d935e0c5",
+      "metadata": {
+        "id": "d935e0c5"
+      },
+      "source": [
+        "## Cell 3"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "11e3da08",
+      "metadata": {
+        "id": "11e3da08"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "import json\n",
+        "import sqlite3\n",
+        "import importlib.metadata as metadata\n",
+        "from pathlib import Path\n",
+        "\n",
+        "import pandas as pd\n",
+        "import matplotlib.pyplot as plt\n",
+        "\n",
+        "PROJECT_DIR = Path(\"/content/ai_business_analyst\")\n",
+        "DATA_DIR = PROJECT_DIR / \"data\"\n",
+        "OUTPUT_DIR = PROJECT_DIR / \"outputs\"\n",
+        "\n",
+        "DATA_DIR.mkdir(parents=True, exist_ok=True)\n",
+        "OUTPUT_DIR.mkdir(parents=True, exist_ok=True)\n",
+        "\n",
+        "DB_PATH = DATA_DIR / \"business.db\"\n",
+        "\n",
+        "print(\"Project:\", PROJECT_DIR)\n",
+        "print(\"Database:\", DB_PATH)\n",
+        "print(\"Outputs:\", OUTPUT_DIR)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "c5714595",
+      "metadata": {
+        "id": "c5714595"
+      },
+      "source": [
+        "## Cell 4"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "dee6b5f8",
+      "metadata": {
+        "id": "dee6b5f8"
+      },
+      "outputs": [],
+      "source": [
+        "packages = [\n",
+        "    \"langchain\",\n",
+        "    \"langchain-community\",\n",
+        "    \"llama-cpp-python\",\n",
+        "    \"huggingface_hub\",\n",
+        "    \"pandas\",\n",
+        "    \"matplotlib\",\n",
+        "    \"reportlab\",\n",
+        "]\n",
+        "\n",
+        "for package in packages:\n",
+        "    try:\n",
+        "        print(f\"{package}: {metadata.version(package)}\")\n",
+        "    except metadata.PackageNotFoundError:\n",
+        "        print(f\"{package}: NOT INSTALLED\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "a90eef4b",
+      "metadata": {
+        "id": "a90eef4b"
+      },
+      "source": [
+        "## 3. Download and load Llama 3.2 3B"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "f82d5543",
+      "metadata": {
+        "id": "f82d5543"
+      },
+      "source": [
+        "## Cell 5"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "404e9800",
+      "metadata": {
+        "id": "404e9800"
+      },
+      "outputs": [],
+      "source": [
+        "from huggingface_hub import hf_hub_download\n",
+        "\n",
+        "MODEL_REPO = \"bartowski/Llama-3.2-3B-Instruct-GGUF\"\n",
+        "MODEL_FILE = \"Llama-3.2-3B-Instruct-Q4_K_M.gguf\"\n",
+        "\n",
+        "model_path = hf_hub_download(\n",
+        "    repo_id=MODEL_REPO,\n",
+        "    filename=MODEL_FILE,\n",
+        ")\n",
+        "\n",
+        "print(\"Model downloaded to:\", model_path)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "ef2eec36",
+      "metadata": {
+        "id": "ef2eec36"
+      },
+      "source": [
+        "## Cell 6"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "06a62466",
+      "metadata": {
+        "id": "06a62466"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "from langchain_community.chat_models import ChatLlamaCpp\n",
+        "\n",
+        "llm = ChatLlamaCpp(\n",
+        "    model_path=model_path,\n",
+        "    temperature=0.0,\n",
+        "    max_tokens=512,\n",
+        "    n_ctx=4096,\n",
+        "    n_threads=max(2, os.cpu_count() or 2),\n",
+        "    verbose=False,\n",
+        ")\n",
+        "\n",
+        "print(\"Llama 3.2 3B loaded successfully.\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "5ceaf92f",
+      "metadata": {
+        "id": "5ceaf92f"
+      },
+      "source": [
+        "## Cell 7"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "b9adc24d",
+      "metadata": {
+        "id": "b9adc24d"
+      },
+      "outputs": [],
+      "source": [
+        "response = llm.invoke(\"What is 125 multiplied by 8? Reply with the answer and one short calculation.\")\n",
+        "print(response.content)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "7f9f6472",
+      "metadata": {
+        "id": "7f9f6472"
+      },
+      "source": [
+        "## 4. Create the business database"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "208e977a",
+      "metadata": {
+        "id": "208e977a"
+      },
+      "source": [
+        "## Cell 8"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "fbc69a06",
+      "metadata": {
+        "id": "fbc69a06"
+      },
+      "outputs": [],
+      "source": [
+        "data = {\n",
+        "    \"product\": [\n",
+        "        \"Laptop\", \"Phone\", \"Tablet\", \"Monitor\", \"Keyboard\", \"Mouse\",\n",
+        "        \"Laptop\", \"Phone\", \"Tablet\", \"Monitor\", \"Keyboard\", \"Mouse\"\n",
+        "    ],\n",
+        "    \"month\": [\n",
+        "        \"January\", \"January\", \"January\", \"January\", \"January\", \"January\",\n",
+        "        \"February\", \"February\", \"February\", \"February\", \"February\", \"February\"\n",
+        "    ],\n",
+        "    \"revenue\": [\n",
+        "        15000, 9000, 6000, 5000, 2000, 1000,\n",
+        "        18000, 11000, 7000, 5500, 2500, 1200\n",
+        "    ],\n",
+        "    \"cost\": [\n",
+        "        10000, 6000, 4000, 3000, 1000, 400,\n",
+        "        12000, 7000, 4500, 3200, 1200, 500\n",
+        "    ],\n",
+        "}\n",
+        "\n",
+        "df = pd.DataFrame(data)\n",
+        "\n",
+        "with sqlite3.connect(DB_PATH) as conn:\n",
+        "    df.to_sql(\"sales\", conn, if_exists=\"replace\", index=False)\n",
+        "\n",
+        "print(\"Sample sales database created.\")\n",
+        "display(df.head())"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "0b5347bd",
+      "metadata": {
+        "id": "0b5347bd"
+      },
+      "source": [
+        "## Cell 9"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "8e66aed2",
+      "metadata": {
+        "id": "8e66aed2"
+      },
+      "outputs": [],
+      "source": [
+        "with sqlite3.connect(DB_PATH) as conn:\n",
+        "    print(pd.read_sql_query(\"SELECT * FROM sales LIMIT 5\", conn))\n",
+        "    print(\"\\\\nRows in sales table:\", pd.read_sql_query(\n",
+        "        \"SELECT COUNT(*) AS row_count FROM sales\", conn\n",
+        "    ).iloc[0, 0])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "abe9c0a0",
+      "metadata": {
+        "id": "abe9c0a0"
+      },
+      "source": [
+        "## 5. Define the business intelligence tools"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "4621372d",
+      "metadata": {
+        "id": "4621372d"
+      },
+      "source": [
+        "## Cell 10"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "d040c4e7",
+      "metadata": {
+        "id": "d040c4e7"
+      },
+      "outputs": [],
+      "source": [
+        "from langchain.tools import tool\n",
+        "\n",
+        "@tool\n",
+        "def query_database(sql: str) -> str:\n",
+        "    \"\"\"Run a read-only SELECT query against the SQLite sales table.\n",
+        "\n",
+        "    Table: sales\n",
+        "    Columns: product, month, revenue, cost\n",
+        "    \"\"\"\n",
+        "    cleaned_sql = sql.strip()\n",
+        "\n",
+        "    if not cleaned_sql.lower().startswith(\"select\"):\n",
+        "        return \"Error: Only SELECT statements are permitted.\"\n",
+        "\n",
+        "    try:\n",
+        "        with sqlite3.connect(f\"file:{DB_PATH}?mode=ro\", uri=True) as conn:\n",
+        "            result = pd.read_sql_query(cleaned_sql, conn)\n",
+        "        return result.to_json(orient=\"records\")\n",
+        "    except Exception as exc:\n",
+        "        return f\"Database error: {exc}\"\n",
+        "\n",
+        "\n",
+        "@tool\n",
+        "def calculate_profit(revenue: float, cost: float) -> float:\n",
+        "    \"\"\"Calculate profit by subtracting cost from revenue.\"\"\"\n",
+        "    return float(revenue) - float(cost)\n",
+        "\n",
+        "\n",
+        "@tool\n",
+        "def generate_sales_chart() -> str:\n",
+        "    \"\"\"Create a bar chart of total revenue by product and save it as a PNG.\"\"\"\n",
+        "    with sqlite3.connect(DB_PATH) as conn:\n",
+        "        chart_data = pd.read_sql_query(\n",
+        "            \"\"\"\n",
+        "            SELECT product, SUM(revenue) AS revenue\n",
+        "            FROM sales\n",
+        "            GROUP BY product\n",
+        "            ORDER BY revenue DESC\n",
+        "            \"\"\",\n",
+        "            conn,\n",
+        "        )\n",
+        "\n",
+        "    chart_path = OUTPUT_DIR / \"sales_chart.png\"\n",
+        "\n",
+        "    plt.figure(figsize=(9, 5))\n",
+        "    plt.bar(chart_data[\"product\"], chart_data[\"revenue\"])\n",
+        "    plt.title(\"Revenue by Product\")\n",
+        "    plt.xlabel(\"Product\")\n",
+        "    plt.ylabel(\"Revenue\")\n",
+        "    plt.tight_layout()\n",
+        "    plt.savefig(chart_path, dpi=150)\n",
+        "    plt.close()\n",
+        "\n",
+        "    return f\"Chart saved to {chart_path}\"\n",
+        "\n",
+        "\n",
+        "tools = [query_database, calculate_profit, generate_sales_chart]\n",
+        "print(f\"{len(tools)} tools registered:\", [item.name for item in tools])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "b2a79b67",
+      "metadata": {
+        "id": "b2a79b67"
+      },
+      "source": [
+        "## 6. Create the AI Business Analyst agent"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "7be8aa49",
+      "metadata": {
+        "id": "7be8aa49"
+      },
+      "source": [
+        "## Cell 11"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "b12c39f9",
+      "metadata": {
+        "id": "b12c39f9"
+      },
+      "outputs": [],
+      "source": [
+        "from langchain.agents import create_agent\n",
+        "\n",
+        "SYSTEM_PROMPT = \"\"\"\n",
+        "You are an AI Business Analyst.\n",
+        "\n",
+        "The SQLite database contains one table named sales with these columns:\n",
+        "product, month, revenue, cost.\n",
+        "\n",
+        "Responsibilities:\n",
+        "1. Retrieve business figures using the SQL tool.\n",
+        "2. Use the profit tool for profit calculations.\n",
+        "3. Generate charts with the chart tool when requested.\n",
+        "4. Explain findings clearly and concisely.\n",
+        "\n",
+        "Rules:\n",
+        "- Never invent business figures.\n",
+        "- Use actual tool results for data-dependent answers.\n",
+        "- Only use read-only SQL SELECT queries.\n",
+        "- Do not invent table or column names.\n",
+        "- Verify calculations before reporting them.\n",
+        "\"\"\"\n",
+        "\n",
+        "agent = create_agent(\n",
+        "    model=llm,\n",
+        "    tools=tools,\n",
+        "    system_prompt=SYSTEM_PROMPT,\n",
+        ")\n",
+        "\n",
+        "print(\"AI Business Analyst agent created.\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "2fca8aba",
+      "metadata": {
+        "id": "2fca8aba"
+      },
+      "source": [
+        "## Cell 12"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "797650a3",
+      "metadata": {
+        "id": "797650a3"
+      },
+      "outputs": [],
+      "source": [
+        "def ask_business_agent(question: str):\n",
+        "    \"\"\"Send a question to the business analyst and display its response.\"\"\"\n",
+        "    result = agent.invoke({\n",
+        "        \"messages\": [{\"role\": \"user\", \"content\": question}]\n",
+        "    })\n",
+        "\n",
+        "    for message in result[\"messages\"]:\n",
+        "        if message.type == \"ai\" and message.tool_calls:\n",
+        "            print(\"Tools called:\", message.tool_calls)\n",
+        "        elif message.type == \"tool\":\n",
+        "            print(\"Tool result:\", message.content)\n",
+        "        elif message.type == \"ai\":\n",
+        "            print(\"\\\\nBusiness Analyst:\", message.content)\n",
+        "\n",
+        "    return result\n",
+        "\n",
+        "print(\"Business Analyst is ready.\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "8760020e",
+      "metadata": {
+        "id": "8760020e"
+      },
+      "source": [
+        "## 7. Test database analysis"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "9ec1ef13",
+      "metadata": {
+        "id": "9ec1ef13"
+      },
+      "source": [
+        "## Cell 13"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "4869cd0c",
+      "metadata": {
+        "id": "4869cd0c"
+      },
+      "outputs": [],
+      "source": [
+        "ask_business_agent(\n",
+        "    \"Find the total revenue across all products using the database.\"\n",
+        ")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "5121fd02",
+      "metadata": {
+        "id": "5121fd02"
+      },
+      "source": [
+        "## Cell 14"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "33da17ce",
+      "metadata": {
+        "id": "33da17ce"
+      },
+      "outputs": [],
+      "source": [
+        "ask_business_agent(\n",
+        "    \"Compare total revenue between January and February. \"\n",
+        "    \"Use the database and explain which month performed better.\"\n",
+        ")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "d7e179ff",
+      "metadata": {
+        "id": "d7e179ff"
+      },
+      "source": [
+        "## Cell 15"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "bd002684",
+      "metadata": {
+        "id": "bd002684"
+      },
+      "outputs": [],
+      "source": [
+        "monthly_revenue = query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT month, SUM(revenue) AS total_revenue\n",
+        "        FROM sales\n",
+        "        GROUP BY month\n",
+        "        ORDER BY CASE month\n",
+        "            WHEN 'January' THEN 1\n",
+        "            WHEN 'February' THEN 2\n",
+        "        END\n",
+        "    \"\"\"\n",
+        "})\n",
+        "\n",
+        "print(monthly_revenue)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "2b288a11",
+      "metadata": {
+        "id": "2b288a11"
+      },
+      "source": [
+        "## 8. Generate sales visualisations"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "5f5506c1",
+      "metadata": {
+        "id": "5f5506c1"
+      },
+      "source": [
+        "## Cell 16"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "6a9a8e8d",
+      "metadata": {
+        "id": "6a9a8e8d"
+      },
+      "outputs": [],
+      "source": [
+        "chart_result = generate_sales_chart.invoke({})\n",
+        "print(chart_result)\n",
+        "\n",
+        "from IPython.display import display, Image\n",
+        "display(Image(filename=str(OUTPUT_DIR / \"sales_chart.png\")))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "3ec09c9d",
+      "metadata": {
+        "id": "3ec09c9d"
+      },
+      "source": [
+        "## Cell 17"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "b2b2dfda",
+      "metadata": {
+        "id": "b2b2dfda"
+      },
+      "outputs": [],
+      "source": [
+        "ask_business_agent(\n",
+        "    \"Generate a bar chart showing total revenue by product using the chart tool.\"\n",
+        ")\n",
+        "display(Image(filename=str(OUTPUT_DIR / \"sales_chart.png\")))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "bc9313f7",
+      "metadata": {
+        "id": "bc9313f7"
+      },
+      "source": [
+        "## Cell 18"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "4cc1ad7f",
+      "metadata": {
+        "id": "4cc1ad7f"
+      },
+      "outputs": [],
+      "source": [
+        "summary = json.loads(query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT SUM(revenue) AS revenue, SUM(cost) AS cost\n",
+        "        FROM sales\n",
+        "    \"\"\"\n",
+        "}))[0]\n",
+        "\n",
+        "total_profit = calculate_profit.invoke({\n",
+        "    \"revenue\": summary[\"revenue\"],\n",
+        "    \"cost\": summary[\"cost\"],\n",
+        "})\n",
+        "\n",
+        "print(\"Total revenue:\", summary[\"revenue\"])\n",
+        "print(\"Total cost:\", summary[\"cost\"])\n",
+        "print(\"Total profit:\", total_profit)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "8e52eca8",
+      "metadata": {
+        "id": "8e52eca8"
+      },
+      "source": [
+        "## Cell 19"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "b4f1eba7",
+      "metadata": {
+        "id": "b4f1eba7"
+      },
+      "outputs": [],
+      "source": [
+        "monthly = json.loads(query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT month, SUM(revenue) AS revenue, SUM(cost) AS cost\n",
+        "        FROM sales\n",
+        "        GROUP BY month\n",
+        "        ORDER BY CASE month WHEN 'January' THEN 1 ELSE 2 END\n",
+        "    \"\"\"\n",
+        "}))\n",
+        "\n",
+        "for row in monthly:\n",
+        "    profit = calculate_profit.invoke({\n",
+        "        \"revenue\": row[\"revenue\"],\n",
+        "        \"cost\": row[\"cost\"],\n",
+        "    })\n",
+        "    print(f\"\\\\n{row['month']}\")\n",
+        "    print(\"Revenue:\", row[\"revenue\"])\n",
+        "    print(\"Cost:\", row[\"cost\"])\n",
+        "    print(\"Profit:\", profit)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "2dab700e",
+      "metadata": {
+        "id": "2dab700e"
+      },
+      "source": [
+        "## Cell 20"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "4ddf2ff0",
+      "metadata": {
+        "id": "4ddf2ff0"
+      },
+      "outputs": [],
+      "source": [
+        "products = json.loads(query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT product, SUM(revenue) AS revenue, SUM(cost) AS cost\n",
+        "        FROM sales\n",
+        "        GROUP BY product\n",
+        "        ORDER BY revenue DESC\n",
+        "    \"\"\"\n",
+        "}))\n",
+        "\n",
+        "for row in products:\n",
+        "    profit = calculate_profit.invoke({\n",
+        "        \"revenue\": row[\"revenue\"],\n",
+        "        \"cost\": row[\"cost\"],\n",
+        "    })\n",
+        "    margin = (profit / row[\"revenue\"] * 100) if row[\"revenue\"] else 0\n",
+        "\n",
+        "    print(\n",
+        "        f\"{row['product']} | Revenue: {row['revenue']} \"\n",
+        "        f\"| Profit: {profit} | Margin: {margin:.2f}%\"\n",
+        "    )"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "c632a7bb",
+      "metadata": {
+        "id": "c632a7bb"
+      },
+      "source": [
+        "## Cell 21"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "af78b604",
+      "metadata": {
+        "id": "af78b604"
+      },
+      "outputs": [],
+      "source": [
+        "product_names = [row[\"product\"] for row in products]\n",
+        "product_profits = [\n",
+        "    calculate_profit.invoke({\n",
+        "        \"revenue\": row[\"revenue\"],\n",
+        "        \"cost\": row[\"cost\"],\n",
+        "    })\n",
+        "    for row in products\n",
+        "]\n",
+        "\n",
+        "plt.figure(figsize=(9, 5))\n",
+        "plt.bar(product_names, product_profits)\n",
+        "plt.title(\"Total Profit by Product\")\n",
+        "plt.xlabel(\"Product\")\n",
+        "plt.ylabel(\"Profit\")\n",
+        "plt.tight_layout()\n",
+        "\n",
+        "profit_chart_path = OUTPUT_DIR / \"profit_by_product.png\"\n",
+        "plt.savefig(profit_chart_path, dpi=150)\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"Saved:\", profit_chart_path)"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "5bc19b6b",
+      "metadata": {
+        "id": "5bc19b6b"
+      },
+      "source": [
+        "## Cell 22"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "71ab049e",
+      "metadata": {
+        "id": "71ab049e"
+      },
+      "outputs": [],
+      "source": [
+        "top_product = json.loads(query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT product, SUM(revenue) AS revenue\n",
+        "        FROM sales\n",
+        "        GROUP BY product\n",
+        "        ORDER BY revenue DESC\n",
+        "        LIMIT 1\n",
+        "    \"\"\"\n",
+        "}))[0]\n",
+        "\n",
+        "print(\"Highest-revenue product:\", top_product[\"product\"])\n",
+        "print(\"Revenue:\", top_product[\"revenue\"])"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "b51bda45",
+      "metadata": {
+        "id": "b51bda45"
+      },
+      "source": [
+        "## 9. Prepare a business performance summary"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "7115aa73",
+      "metadata": {
+        "id": "7115aa73"
+      },
+      "source": [
+        "## Cell 23"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "587b8700",
+      "metadata": {
+        "id": "587b8700"
+      },
+      "outputs": [],
+      "source": [
+        "monthly_summary = json.loads(query_database.invoke({\n",
+        "    \"sql\": \"\"\"\n",
+        "        SELECT month, SUM(revenue) AS revenue, SUM(cost) AS cost\n",
+        "        FROM sales\n",
+        "        GROUP BY month\n",
+        "    \"\"\"\n",
+        "}))\n",
+        "\n",
+        "print(\"BUSINESS PERFORMANCE SUMMARY\")\n",
+        "print(\"----------------------------\")\n",
+        "print(\"Total revenue:\", summary[\"revenue\"])\n",
+        "print(\"Total cost:\", summary[\"cost\"])\n",
+        "print(\"Total profit:\", total_profit)\n",
+        "print(\"Top product:\", top_product[\"product\"])\n",
+        "print(\"Top product revenue:\", top_product[\"revenue\"])\n",
+        "print(\"\\\\nMONTHLY PERFORMANCE\")\n",
+        "\n",
+        "for row in monthly_summary:\n",
+        "    month_profit = calculate_profit.invoke({\n",
+        "        \"revenue\": row[\"revenue\"],\n",
+        "        \"cost\": row[\"cost\"],\n",
+        "    })\n",
+        "    print(\n",
+        "        f\"{row['month']}: Revenue {row['revenue']}, \"\n",
+        "        f\"Cost {row['cost']}, Profit {month_profit}\"\n",
+        "    )"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "549dec0f",
+      "metadata": {
+        "id": "549dec0f"
+      },
+      "source": [
+        "## 10. Generate a PDF report"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "39bbf6bd",
+      "metadata": {
+        "id": "39bbf6bd"
+      },
+      "source": [
+        "## Cell 24"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "c976f9e2",
+      "metadata": {
+        "id": "c976f9e2"
+      },
+      "outputs": [],
+      "source": [
+        "%pip install -q reportlab"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "f7bfe6b8",
+      "metadata": {
+        "id": "f7bfe6b8"
+      },
+      "source": [
+        "## Cell 25"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "c5297f5a",
+      "metadata": {
+        "id": "c5297f5a"
+      },
+      "outputs": [],
+      "source": [
+        "from reportlab.lib import colors\n",
+        "from reportlab.lib.pagesizes import A4\n",
+        "from reportlab.lib.styles import getSampleStyleSheet\n",
+        "from reportlab.lib.units import cm\n",
+        "from reportlab.platypus import (\n",
+        "    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage\n",
+        ")\n",
+        "\n",
+        "pdf_path = OUTPUT_DIR / \"business_performance_report.pdf\"\n",
+        "\n",
+        "doc = SimpleDocTemplate(\n",
+        "    str(pdf_path),\n",
+        "    pagesize=A4,\n",
+        "    rightMargin=2 * cm,\n",
+        "    leftMargin=2 * cm,\n",
+        "    topMargin=2 * cm,\n",
+        "    bottomMargin=2 * cm,\n",
+        ")\n",
+        "\n",
+        "styles = getSampleStyleSheet()\n",
+        "story = [\n",
+        "    Paragraph(\"Business Performance Report\", styles[\"Title\"]),\n",
+        "    Spacer(1, 12),\n",
+        "    Paragraph(\"Financial overview and sales performance\", styles[\"Heading2\"]),\n",
+        "    Spacer(1, 16),\n",
+        "]\n",
+        "\n",
+        "report_rows = [\n",
+        "    [\"Metric\", \"Result\"],\n",
+        "    [\"Total Revenue\", f\"{summary['revenue']:,.0f}\"],\n",
+        "    [\"Total Cost\", f\"{summary['cost']:,.0f}\"],\n",
+        "    [\"Total Profit\", f\"{total_profit:,.0f}\"],\n",
+        "    [\"Highest Revenue Product\", top_product[\"product\"]],\n",
+        "    [\"Highest Product Revenue\", f\"{top_product['revenue']:,.0f}\"],\n",
+        "]\n",
+        "\n",
+        "for row in monthly_summary:\n",
+        "    report_rows.append([\n",
+        "        f\"{row['month']} Revenue\",\n",
+        "        f\"{row['revenue']:,.0f}\",\n",
+        "    ])\n",
+        "\n",
+        "table = Table(report_rows, colWidths=[9 * cm, 7 * cm])\n",
+        "table.setStyle(TableStyle([\n",
+        "    (\"BACKGROUND\", (0, 0), (-1, 0), colors.HexColor(\"#243B53\")),\n",
+        "    (\"TEXTCOLOR\", (0, 0), (-1, 0), colors.white),\n",
+        "    (\"FONTNAME\", (0, 0), (-1, 0), \"Helvetica-Bold\"),\n",
+        "    (\"GRID\", (0, 0), (-1, -1), 0.5, colors.grey),\n",
+        "    (\"PADDING\", (0, 0), (-1, -1), 9),\n",
+        "    (\"BACKGROUND\", (0, 1), (-1, -1), colors.HexColor(\"#F1F5F9\")),\n",
+        "]))\n",
+        "\n",
+        "story.extend([table, Spacer(1, 20)])\n",
+        "story.append(Paragraph(\"Key Findings\", styles[\"Heading2\"]))\n",
+        "story.append(Spacer(1, 8))\n",
+        "story.append(Paragraph(\n",
+        "    f\"{top_product['product']} was the highest-revenue product, generating \"\n",
+        "    f\"{top_product['revenue']:,.0f}. Total business profit was \"\n",
+        "    f\"{total_profit:,.0f}.\",\n",
+        "    styles[\"BodyText\"],\n",
+        "))\n",
+        "\n",
+        "if (OUTPUT_DIR / \"sales_chart.png\").exists():\n",
+        "    story.extend([Spacer(1, 16), Paragraph(\"Revenue by Product\", styles[\"Heading2\"])])\n",
+        "    story.append(RLImage(str(OUTPUT_DIR / \"sales_chart.png\"), width=15 * cm, height=8.3 * cm))\n",
+        "\n",
+        "doc.build(story)\n",
+        "\n",
+        "print(\"PDF report created:\", pdf_path)\n",
+        "print(\"File size:\", round(pdf_path.stat().st_size / 1024, 2), \"KB\")"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "dcedd576",
+      "metadata": {
+        "id": "dcedd576"
+      },
+      "source": [
+        "## Cell 26"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "b85f9820",
+      "metadata": {
+        "id": "b85f9820"
+      },
+      "outputs": [],
+      "source": [
+        "from google.colab import files\n",
+        "\n",
+        "files.download(str(OUTPUT_DIR / \"business_performance_report.pdf\"))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "e99b7a0d",
+      "metadata": {
+        "id": "e99b7a0d"
+      },
+      "source": [
+        "## 11. Ask questions interactively"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "id": "505ce179",
+      "metadata": {
+        "id": "505ce179"
+      },
+      "source": [
+        "## Cell 27"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "id": "3e17d120",
+      "metadata": {
+        "id": "3e17d120"
+      },
+      "outputs": [],
+      "source": [
+        "ask_business_agent(\"Which product generated the most revenue?\")"
+      ]
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
