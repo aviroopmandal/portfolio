@@ -1,0 +1,1700 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "wr1G2SsH2LVC"
+      },
+      "source": [
+        "## Cell 1"
+      ],
+      "id": "wr1G2SsH2LVC"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "aCrxEpD02LVR"
+      },
+      "outputs": [],
+      "source": [
+        "!pip -q install \"mcp[cli]\""
+      ],
+      "id": "aCrxEpD02LVR"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "F-eJlSl-2LVY"
+      },
+      "source": [
+        "## Cell 2"
+      ],
+      "id": "F-eJlSl-2LVY"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Z_7N6hMv2LVa"
+      },
+      "outputs": [],
+      "source": [
+        "import asyncio\n",
+        "import json\n",
+        "import os\n",
+        "import sqlite3\n",
+        "\n",
+        "from contextlib import AsyncExitStack\n",
+        "\n",
+        "print(\"Environment initialised successfully!\")\n",
+        "print(\"MCP Business Operations System\")"
+      ],
+      "id": "Z_7N6hMv2LVa"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "XnsU9xog2LVe"
+      },
+      "source": [
+        "## Cell 3"
+      ],
+      "id": "XnsU9xog2LVe"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "AYW0cWrp2LVg"
+      },
+      "outputs": [],
+      "source": [
+        "inventory_db = sqlite3.connect(\n",
+        "    \"inventory.db\",\n",
+        "    check_same_thread=False\n",
+        ")\n",
+        "\n",
+        "inventory_db.execute(\"\"\"\n",
+        "CREATE TABLE IF NOT EXISTS products (\n",
+        "    product_id INTEGER PRIMARY KEY,\n",
+        "    name TEXT NOT NULL,\n",
+        "    quantity INTEGER NOT NULL,\n",
+        "    unit_price REAL NOT NULL,\n",
+        "    reorder_level INTEGER NOT NULL\n",
+        ")\n",
+        "\"\"\")\n",
+        "\n",
+        "inventory_db.commit()\n",
+        "\n",
+        "print(\"Inventory database created successfully!\")"
+      ],
+      "id": "AYW0cWrp2LVg"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "v3tzyoSr2LVj"
+      },
+      "source": [
+        "## Cell 4"
+      ],
+      "id": "v3tzyoSr2LVj"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "NVxWnRyi2LVm"
+      },
+      "outputs": [],
+      "source": [
+        "products = [\n",
+        "    (1, \"Laptop\", 25, 65000, 5),\n",
+        "    (2, \"Keyboard\", 80, 1200, 15),\n",
+        "    (3, \"Mouse\", 12, 600, 20),\n",
+        "    (4, \"Monitor\", 18, 12000, 5),\n",
+        "    (5, \"Headphones\", 7, 2500, 10)\n",
+        "]\n",
+        "\n",
+        "inventory_db.executemany(\"\"\"\n",
+        "INSERT OR IGNORE INTO products\n",
+        "VALUES (?, ?, ?, ?, ?)\n",
+        "\"\"\", products)\n",
+        "\n",
+        "inventory_db.commit()\n",
+        "\n",
+        "print(\"Sample inventory inserted successfully!\")"
+      ],
+      "id": "NVxWnRyi2LVm"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VTN-JqDo2LVq"
+      },
+      "source": [
+        "## Cell 5"
+      ],
+      "id": "VTN-JqDo2LVq"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "B8fPHacD2LVs"
+      },
+      "outputs": [],
+      "source": [
+        "from mcp.server.mcpserver import MCPServer\n",
+        "\n",
+        "inventory_server = MCPServer(\"Inventory Server\")\n",
+        "\n",
+        "@inventory_server.tool()\n",
+        "def get_inventory():\n",
+        "    \"\"\"Retrieve all products and their stock levels.\"\"\"\n",
+        "\n",
+        "    cursor = inventory_db.execute(\n",
+        "        \"SELECT * FROM products\"\n",
+        "    )\n",
+        "\n",
+        "    return [\n",
+        "        {\n",
+        "            \"product_id\": row[0],\n",
+        "            \"name\": row[1],\n",
+        "            \"quantity\": row[2],\n",
+        "            \"unit_price\": row[3],\n",
+        "            \"reorder_level\": row[4]\n",
+        "        }\n",
+        "        for row in cursor.fetchall()\n",
+        "    ]\n",
+        "\n",
+        "\n",
+        "@inventory_server.tool()\n",
+        "def check_stock(product_id: int):\n",
+        "    \"\"\"Check the stock level of a particular product.\"\"\"\n",
+        "\n",
+        "    cursor = inventory_db.execute(\n",
+        "        \"SELECT * FROM products WHERE product_id = ?\",\n",
+        "        (product_id,)\n",
+        "    )\n",
+        "\n",
+        "    row = cursor.fetchone()\n",
+        "\n",
+        "    if row is None:\n",
+        "        return {\"error\": \"Product not found\"}\n",
+        "\n",
+        "    return {\n",
+        "        \"product_id\": row[0],\n",
+        "        \"name\": row[1],\n",
+        "        \"quantity\": row[2],\n",
+        "        \"unit_price\": row[3],\n",
+        "        \"reorder_level\": row[4]\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "@inventory_server.tool()\n",
+        "def add_stock(product_id: int, quantity: int):\n",
+        "    \"\"\"Add stock to an existing product.\"\"\"\n",
+        "\n",
+        "    if quantity <= 0:\n",
+        "        return {\"error\": \"Quantity must be positive\"}\n",
+        "\n",
+        "    cursor = inventory_db.execute(\n",
+        "        \"UPDATE products SET quantity = quantity + ? \"\n",
+        "        \"WHERE product_id = ?\",\n",
+        "        (quantity, product_id)\n",
+        "    )\n",
+        "\n",
+        "    inventory_db.commit()\n",
+        "\n",
+        "    if cursor.rowcount == 0:\n",
+        "        return {\"error\": \"Product not found\"}\n",
+        "\n",
+        "    return {\n",
+        "        \"message\": \"Stock updated successfully\",\n",
+        "        \"product_id\": product_id,\n",
+        "        \"added_quantity\": quantity\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "@inventory_server.tool()\n",
+        "def get_low_stock():\n",
+        "    \"\"\"Identify products requiring stock replenishment.\"\"\"\n",
+        "\n",
+        "    cursor = inventory_db.execute(\"\"\"\n",
+        "        SELECT name, quantity, reorder_level\n",
+        "        FROM products\n",
+        "        WHERE quantity <= reorder_level\n",
+        "    \"\"\")\n",
+        "\n",
+        "    return [\n",
+        "        {\n",
+        "            \"name\": row[0],\n",
+        "            \"quantity\": row[1],\n",
+        "            \"reorder_level\": row[2]\n",
+        "        }\n",
+        "        for row in cursor.fetchall()\n",
+        "    ]\n",
+        "\n",
+        "\n",
+        "print(\"Inventory MCP Server created successfully!\")\n",
+        "print(\"Registered tools: 4\")"
+      ],
+      "id": "B8fPHacD2LVs"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "luoKSrUa2LVw"
+      },
+      "source": [
+        "## Cell 6"
+      ],
+      "id": "luoKSrUa2LVw"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Ad47oRc22LVy"
+      },
+      "outputs": [],
+      "source": [
+        "print(\"STOCK CHECK\")\n",
+        "print(check_stock(3))"
+      ],
+      "id": "Ad47oRc22LVy"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "K1uXCbtR2LV0"
+      },
+      "source": [
+        "## Cell 7"
+      ],
+      "id": "K1uXCbtR2LV0"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "iS4hv1LN2LV1"
+      },
+      "outputs": [],
+      "source": [
+        "finance_db = sqlite3.connect(\n",
+        "    \"finance.db\",\n",
+        "    check_same_thread=False\n",
+        ")\n",
+        "\n",
+        "finance_db.execute(\"\"\"\n",
+        "CREATE TABLE IF NOT EXISTS transactions (\n",
+        "    transaction_id INTEGER PRIMARY KEY,\n",
+        "    description TEXT NOT NULL,\n",
+        "    amount REAL NOT NULL,\n",
+        "    transaction_type TEXT NOT NULL\n",
+        ")\n",
+        "\"\"\")\n",
+        "\n",
+        "finance_db.commit()\n",
+        "\n",
+        "print(\"Financial database created successfully!\")"
+      ],
+      "id": "iS4hv1LN2LV1"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "OLwBH5bQ2LV3"
+      },
+      "source": [
+        "## Cell 8"
+      ],
+      "id": "OLwBH5bQ2LV3"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ObboTKMx2LV4"
+      },
+      "outputs": [],
+      "source": [
+        "transactions = [\n",
+        "    (1, \"Laptop Sales\", 195000, \"income\"),\n",
+        "    (2, \"Keyboard Sales\", 24000, \"income\"),\n",
+        "    (3, \"Office Rent\", 30000, \"expense\"),\n",
+        "    (4, \"Employee Salaries\", 45000, \"expense\"),\n",
+        "    (5, \"Electricity Bill\", 5000, \"expense\"),\n",
+        "    (6, \"Mouse Sales\", 12000, \"income\")\n",
+        "]\n",
+        "\n",
+        "finance_db.executemany(\"\"\"\n",
+        "INSERT OR IGNORE INTO transactions\n",
+        "VALUES (?, ?, ?, ?)\n",
+        "\"\"\", transactions)\n",
+        "\n",
+        "finance_db.commit()\n",
+        "\n",
+        "print(\"Sample financial transactions inserted successfully!\")"
+      ],
+      "id": "ObboTKMx2LV4"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "tdPWM4Xi2LV6"
+      },
+      "source": [
+        "## Cell 9"
+      ],
+      "id": "tdPWM4Xi2LV6"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "wTZDt7662LV7"
+      },
+      "outputs": [],
+      "source": [
+        "finance_server = MCPServer(\"Finance Server\")\n",
+        "\n",
+        "@finance_server.tool()\n",
+        "def get_transactions():\n",
+        "    \"\"\"Retrieve all financial transactions.\"\"\"\n",
+        "\n",
+        "    cursor = finance_db.execute(\n",
+        "        \"SELECT * FROM transactions\"\n",
+        "    )\n",
+        "\n",
+        "    rows = cursor.fetchall()\n",
+        "\n",
+        "    return [\n",
+        "        {\n",
+        "            \"transaction_id\": row[0],\n",
+        "            \"description\": row[1],\n",
+        "            \"amount\": row[2],\n",
+        "            \"transaction_type\": row[3]\n",
+        "        }\n",
+        "        for row in rows\n",
+        "    ]\n",
+        "\n",
+        "\n",
+        "@finance_server.tool()\n",
+        "def calculate_financial_summary():\n",
+        "    \"\"\"Calculate total income, expenses and profit.\"\"\"\n",
+        "\n",
+        "    cursor = finance_db.execute(\"\"\"\n",
+        "        SELECT\n",
+        "            SUM(CASE WHEN transaction_type = 'income'\n",
+        "                THEN amount ELSE 0 END),\n",
+        "            SUM(CASE WHEN transaction_type = 'expense'\n",
+        "                THEN amount ELSE 0 END)\n",
+        "        FROM transactions\n",
+        "    \"\"\")\n",
+        "\n",
+        "    income, expenses = cursor.fetchone()\n",
+        "\n",
+        "    income = income or 0\n",
+        "    expenses = expenses or 0\n",
+        "\n",
+        "    return {\n",
+        "        \"total_income\": income,\n",
+        "        \"total_expenses\": expenses,\n",
+        "        \"net_profit\": income - expenses\n",
+        "    }\n",
+        "\n",
+        "print(\"Finance MCP server created successfully!\")"
+      ],
+      "id": "wTZDt7662LV7"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "y7mXSlrj2LV9"
+      },
+      "source": [
+        "## Cell 10"
+      ],
+      "id": "y7mXSlrj2LV9"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "I1OQgk0O2LV-"
+      },
+      "outputs": [],
+      "source": [
+        "print(\"FINANCIAL TRANSACTIONS\")\n",
+        "print(get_transactions())\n",
+        "\n",
+        "print(\"\\nFINANCIAL SUMMARY\")\n",
+        "print(calculate_financial_summary())"
+      ],
+      "id": "I1OQgk0O2LV-"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "OZn7hFpI2LWA"
+      },
+      "source": [
+        "## Cell 11"
+      ],
+      "id": "OZn7hFpI2LWA"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Z0OBU-aF2LWB"
+      },
+      "outputs": [],
+      "source": [
+        "sales_db = sqlite3.connect(\n",
+        "    \"sales.db\",\n",
+        "    check_same_thread=False\n",
+        ")\n",
+        "\n",
+        "sales_db.execute(\"\"\"\n",
+        "CREATE TABLE IF NOT EXISTS orders (\n",
+        "    order_id INTEGER PRIMARY KEY,\n",
+        "    customer_name TEXT NOT NULL,\n",
+        "    product_name TEXT NOT NULL,\n",
+        "    quantity INTEGER NOT NULL,\n",
+        "    total_amount REAL NOT NULL,\n",
+        "    status TEXT NOT NULL\n",
+        ")\n",
+        "\"\"\")\n",
+        "\n",
+        "sales_db.commit()\n",
+        "\n",
+        "print(\"Sales database created successfully!\")"
+      ],
+      "id": "Z0OBU-aF2LWB"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "S8IrtLO92LWD"
+      },
+      "source": [
+        "## Cell 12"
+      ],
+      "id": "S8IrtLO92LWD"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "zvaH3vEF2LWE"
+      },
+      "outputs": [],
+      "source": [
+        "orders = [\n",
+        "    (1, \"Aarav\", \"Laptop\", 2, 130000, \"completed\"),\n",
+        "    (2, \"Mira\", \"Keyboard\", 5, 6000, \"pending\"),\n",
+        "    (3, \"Rohan\", \"Mouse\", 3, 1800, \"processing\"),\n",
+        "    (4, \"Anaya\", \"Monitor\", 1, 12000, \"completed\"),\n",
+        "    (5, \"Ishaan\", \"Headphones\", 2, 5000, \"pending\")\n",
+        "]\n",
+        "\n",
+        "sales_db.executemany(\"\"\"\n",
+        "INSERT OR IGNORE INTO orders\n",
+        "VALUES (?, ?, ?, ?, ?, ?)\n",
+        "\"\"\", orders)\n",
+        "\n",
+        "sales_db.commit()\n",
+        "\n",
+        "print(\"Sample customer orders inserted successfully!\")"
+      ],
+      "id": "zvaH3vEF2LWE"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "3T0uzoVe2LWG"
+      },
+      "source": [
+        "## Cell 13"
+      ],
+      "id": "3T0uzoVe2LWG"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "8-I4JEGd2LWH"
+      },
+      "outputs": [],
+      "source": [
+        "sales_server = MCPServer(\"Sales and Orders Server\")\n",
+        "\n",
+        "\n",
+        "@sales_server.tool()\n",
+        "def get_orders():\n",
+        "    \"\"\"Retrieve all customer orders.\"\"\"\n",
+        "\n",
+        "    cursor = sales_db.execute(\n",
+        "        \"SELECT * FROM orders\"\n",
+        "    )\n",
+        "\n",
+        "    rows = cursor.fetchall()\n",
+        "\n",
+        "    return [\n",
+        "        {\n",
+        "            \"order_id\": row[0],\n",
+        "            \"customer_name\": row[1],\n",
+        "            \"product_name\": row[2],\n",
+        "            \"quantity\": row[3],\n",
+        "            \"total_amount\": row[4],\n",
+        "            \"status\": row[5]\n",
+        "        }\n",
+        "        for row in rows\n",
+        "    ]\n",
+        "\n",
+        "\n",
+        "@sales_server.tool()\n",
+        "def get_pending_orders():\n",
+        "    \"\"\"Retrieve all orders awaiting completion.\"\"\"\n",
+        "\n",
+        "    cursor = sales_db.execute(\n",
+        "        \"SELECT * FROM orders WHERE status = 'pending'\"\n",
+        "    )\n",
+        "\n",
+        "    rows = cursor.fetchall()\n",
+        "\n",
+        "    return [\n",
+        "        {\n",
+        "            \"order_id\": row[0],\n",
+        "            \"customer_name\": row[1],\n",
+        "            \"product_name\": row[2],\n",
+        "            \"quantity\": row[3],\n",
+        "            \"total_amount\": row[4],\n",
+        "            \"status\": row[5]\n",
+        "        }\n",
+        "        for row in rows\n",
+        "    ]\n",
+        "\n",
+        "\n",
+        "@sales_server.tool()\n",
+        "def calculate_total_sales():\n",
+        "    \"\"\"Calculate the total value of all orders.\"\"\"\n",
+        "\n",
+        "    cursor = sales_db.execute(\n",
+        "        \"SELECT SUM(total_amount) FROM orders\"\n",
+        "    )\n",
+        "\n",
+        "    return cursor.fetchone()[0] or 0\n",
+        "\n",
+        "\n",
+        "print(\"Sales and Orders MCP server created successfully!\")"
+      ],
+      "id": "8-I4JEGd2LWH"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "VE2oVQJU2LWJ"
+      },
+      "source": [
+        "## Cell 14"
+      ],
+      "id": "VE2oVQJU2LWJ"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "_Kus29GY2LWK"
+      },
+      "outputs": [],
+      "source": [
+        "print(\"ALL CUSTOMER ORDERS\")\n",
+        "print(get_orders())\n",
+        "\n",
+        "print(\"\\nPENDING ORDERS\")\n",
+        "print(get_pending_orders())\n",
+        "\n",
+        "print(\"\\nTOTAL SALES\")\n",
+        "print(calculate_total_sales())"
+      ],
+      "id": "_Kus29GY2LWK"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "tGN9A3UH2LWM"
+      },
+      "source": [
+        "## Cell 15"
+      ],
+      "id": "tGN9A3UH2LWM"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "OD5en1J-2LWN"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "print(\"MCP SERVER TYPE:\")\n",
+        "print(type(inventory_server))\n",
+        "\n",
+        "print(\"\\nAVAILABLE SERVER METHODS:\")\n",
+        "print([\n",
+        "    method for method in dir(inventory_server)\n",
+        "    if not method.startswith(\"_\")\n",
+        "])\n",
+        "\n",
+        "print(\"\\nSERVER INITIALISATION:\")\n",
+        "print(inspect.signature(MCPServer))"
+      ],
+      "id": "OD5en1J-2LWN"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "PBS-oMcH2LWO"
+      },
+      "source": [
+        "## Cell 16"
+      ],
+      "id": "PBS-oMcH2LWO"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "ieg8PA4h2LWP"
+      },
+      "outputs": [],
+      "source": [
+        "import mcp.client\n",
+        "import pkgutil\n",
+        "\n",
+        "print(\"AVAILABLE MCP CLIENT MODULES:\")\n",
+        "\n",
+        "print([\n",
+        "    module.name\n",
+        "    for module in pkgutil.iter_modules(mcp.client.__path__)\n",
+        "])"
+      ],
+      "id": "ieg8PA4h2LWP"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "UBASKym52LWQ"
+      },
+      "source": [
+        "## Cell 17"
+      ],
+      "id": "UBASKym52LWQ"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "594IM5v12LWR"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "from mcp.client.session import ClientSession\n",
+        "from mcp.client.stdio import stdio_client\n",
+        "\n",
+        "print(\"CLIENT SESSION:\")\n",
+        "print(inspect.signature(ClientSession))\n",
+        "\n",
+        "print(\"\\nSTDIO CLIENT:\")\n",
+        "print(inspect.signature(stdio_client))"
+      ],
+      "id": "594IM5v12LWR"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "xRhKi-1Y2LWT"
+      },
+      "source": [
+        "## Cell 18"
+      ],
+      "id": "xRhKi-1Y2LWT"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "SmAMt9FK2LWU"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "from mcp.client.streamable_http import streamable_http_client\n",
+        "\n",
+        "print(\"STREAMABLE HTTP CLIENT:\")\n",
+        "print(inspect.signature(streamable_http_client))\n",
+        "\n",
+        "print(\"\\nSERVER HTTP RUNNER:\")\n",
+        "print(inspect.signature(inventory_server.run_streamable_http_async))"
+      ],
+      "id": "SmAMt9FK2LWU"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "TsLPciyk2LWW"
+      },
+      "source": [
+        "## Cell 19"
+      ],
+      "id": "TsLPciyk2LWW"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "XGSAGfuN2LWX"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "print(inspect.getsource(\n",
+        "    MCPServer.run_streamable_http_async\n",
+        "))"
+      ],
+      "id": "XGSAGfuN2LWX"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "QTSs-wTu2LWY"
+      },
+      "source": [
+        "## Cell 20"
+      ],
+      "id": "QTSs-wTu2LWY"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "lGBC49Pr2LWf"
+      },
+      "outputs": [],
+      "source": [
+        "server_tasks = {\n",
+        "    \"Inventory\": asyncio.create_task(\n",
+        "        inventory_server.run_streamable_http_async(\n",
+        "            host=\"127.0.0.1\",\n",
+        "            port=8001\n",
+        "        )\n",
+        "    ),\n",
+        "\n",
+        "    \"Finance\": asyncio.create_task(\n",
+        "        finance_server.run_streamable_http_async(\n",
+        "            host=\"127.0.0.1\",\n",
+        "            port=8002\n",
+        "        )\n",
+        "    ),\n",
+        "\n",
+        "    \"Sales\": asyncio.create_task(\n",
+        "        sales_server.run_streamable_http_async(\n",
+        "            host=\"127.0.0.1\",\n",
+        "            port=8003\n",
+        "        )\n",
+        "    )\n",
+        "}\n",
+        "\n",
+        "await asyncio.sleep(3)\n",
+        "\n",
+        "for name, task in server_tasks.items():\n",
+        "    print(\n",
+        "        name,\n",
+        "        \"server:\",\n",
+        "        \"RUNNING\" if not task.done() else \"STOPPED\"\n",
+        "    )"
+      ],
+      "id": "lGBC49Pr2LWf"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "OfIUsYJy2LWh"
+      },
+      "source": [
+        "## Cell 21"
+      ],
+      "id": "OfIUsYJy2LWh"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "qaxeFnf52LWi"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "print(inspect.getsource(streamable_http_client))\n",
+        "\n",
+        "print(\"\\nCLIENT SESSION METHODS:\")\n",
+        "\n",
+        "print([\n",
+        "    method for method in dir(ClientSession)\n",
+        "    if not method.startswith(\"_\")\n",
+        "])"
+      ],
+      "id": "qaxeFnf52LWi"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "tEozFKFD2LWk"
+      },
+      "source": [
+        "## Cell 22"
+      ],
+      "id": "tEozFKFD2LWk"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "VLQvY8Yt2LWm"
+      },
+      "outputs": [],
+      "source": [
+        "import inspect\n",
+        "\n",
+        "print(\"INITIALIZE:\")\n",
+        "print(inspect.signature(ClientSession.initialize))\n",
+        "\n",
+        "print(\"\\nLIST TOOLS:\")\n",
+        "print(inspect.signature(ClientSession.list_tools))\n",
+        "\n",
+        "print(\"\\nCALL TOOL:\")\n",
+        "print(inspect.signature(ClientSession.call_tool))\n",
+        "\n",
+        "print(\"\\nSESSION CONTEXT MANAGER:\")\n",
+        "print(hasattr(ClientSession, \"__aenter__\"))\n",
+        "print(hasattr(ClientSession, \"__aexit__\"))"
+      ],
+      "id": "VLQvY8Yt2LWm"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "4HbW58zU2LWn"
+      },
+      "source": [
+        "## Cell 23"
+      ],
+      "id": "4HbW58zU2LWn"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "wsjZR-H42LWp"
+      },
+      "outputs": [],
+      "source": [
+        "from mcp.client.session import ClientSession\n",
+        "from mcp.client.streamable_http import streamable_http_client\n",
+        "\n",
+        "\n",
+        "async def inspect_server(name, url):\n",
+        "\n",
+        "    async with streamable_http_client(url) as streams:\n",
+        "\n",
+        "        read_stream, write_stream = streams\n",
+        "\n",
+        "        async with ClientSession(\n",
+        "            read_stream,\n",
+        "            write_stream\n",
+        "        ) as session:\n",
+        "\n",
+        "            await session.initialize()\n",
+        "\n",
+        "            tools = await session.list_tools()\n",
+        "\n",
+        "            print(f\"\\n{name.upper()} SERVER\")\n",
+        "            print(\"Connected successfully!\")\n",
+        "\n",
+        "            for tool in tools.tools:\n",
+        "                print(\"-\", tool.name)\n",
+        "\n",
+        "\n",
+        "await inspect_server(\n",
+        "    \"Inventory\",\n",
+        "    \"http://127.0.0.1:8001/mcp\"\n",
+        ")\n",
+        "\n",
+        "await inspect_server(\n",
+        "    \"Finance\",\n",
+        "    \"http://127.0.0.1:8002/mcp\"\n",
+        ")\n",
+        "\n",
+        "await inspect_server(\n",
+        "    \"Sales\",\n",
+        "    \"http://127.0.0.1:8003/mcp\"\n",
+        ")"
+      ],
+      "id": "wsjZR-H42LWp"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "qnWlI4-o2LWr"
+      },
+      "source": [
+        "## Cell 24"
+      ],
+      "id": "qnWlI4-o2LWr"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "oRNWRvaZ2LWt"
+      },
+      "outputs": [],
+      "source": [
+        "client_stack = AsyncExitStack()\n",
+        "await client_stack.__aenter__()\n",
+        "\n",
+        "if \"client_sessions\" not in globals():\n",
+        "    client_sessions = {}\n",
+        "\n",
+        "async def connect_server(name, url):\n",
+        "\n",
+        "    streams = await client_stack.enter_async_context(\n",
+        "        streamable_http_client(url)\n",
+        "    )\n",
+        "\n",
+        "    session = await client_stack.enter_async_context(\n",
+        "        ClientSession(*streams)\n",
+        "    )\n",
+        "\n",
+        "    await session.initialize()\n",
+        "\n",
+        "    client_sessions[name] = session\n",
+        "\n",
+        "    print(f\"{name} connected and session established!\")\n",
+        "\n",
+        "\n",
+        "await connect_server(\n",
+        "    \"inventory\",\n",
+        "    \"http://127.0.0.1:8001/mcp\"\n",
+        ")\n",
+        "\n",
+        "await connect_server(\n",
+        "    \"finance\",\n",
+        "    \"http://127.0.0.1:8002/mcp\"\n",
+        ")\n",
+        "\n",
+        "await connect_server(\n",
+        "    \"sales\",\n",
+        "    \"http://127.0.0.1:8003/mcp\"\n",
+        ")"
+      ],
+      "id": "oRNWRvaZ2LWt"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "6n9_LhU12LWv"
+      },
+      "source": [
+        "## Cell 25"
+      ],
+      "id": "6n9_LhU12LWv"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "IluIc2wJ2LWw"
+      },
+      "outputs": [],
+      "source": [
+        "tool_registry = {}\n",
+        "\n",
+        "for server_name, session in client_sessions.items():\n",
+        "\n",
+        "    result = await session.list_tools()\n",
+        "\n",
+        "    for tool in result.tools:\n",
+        "        tool_registry[tool.name] = {\n",
+        "            \"server\": server_name,\n",
+        "            \"description\": tool.description\n",
+        "        }\n",
+        "\n",
+        "\n",
+        "async def call_mcp_tool(tool_name, arguments=None):\n",
+        "\n",
+        "    if tool_name not in tool_registry:\n",
+        "        return {\"error\": \"Tool not found\"}\n",
+        "\n",
+        "    server_name = tool_registry[tool_name][\"server\"]\n",
+        "\n",
+        "    session = client_sessions[server_name]\n",
+        "\n",
+        "    result = await session.call_tool(\n",
+        "        tool_name,\n",
+        "        arguments or {}\n",
+        "    )\n",
+        "\n",
+        "    return result\n",
+        "\n",
+        "\n",
+        "print(\"CENTRAL MCP TOOL REGISTRY\")\n",
+        "\n",
+        "for name, details in tool_registry.items():\n",
+        "    print(f\"{name} -> {details['server']}\")\n",
+        "\n",
+        "print(\"\\nTotal registered tools:\", len(tool_registry))"
+      ],
+      "id": "IluIc2wJ2LWw"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "xoIlEgFp2LWy"
+      },
+      "source": [
+        "## Cell 26"
+      ],
+      "id": "xoIlEgFp2LWy"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "8dwpfW4t2LW0"
+      },
+      "outputs": [],
+      "source": [
+        "print(\"INVENTORY\")\n",
+        "inventory_result = await call_mcp_tool(\"get_inventory\")\n",
+        "print(inventory_result)\n",
+        "\n",
+        "print(\"\\nFINANCIAL SUMMARY\")\n",
+        "finance_result = await call_mcp_tool(\n",
+        "    \"calculate_financial_summary\"\n",
+        ")\n",
+        "print(finance_result)\n",
+        "\n",
+        "print(\"\\nPENDING ORDERS\")\n",
+        "orders_result = await call_mcp_tool(\"get_pending_orders\")\n",
+        "print(orders_result)"
+      ],
+      "id": "8dwpfW4t2LW0"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "wiGasSq22LW2"
+      },
+      "source": [
+        "## Cell 27"
+      ],
+      "id": "wiGasSq22LW2"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "DMcBFHYz2LW3"
+      },
+      "outputs": [],
+      "source": [
+        "def normalize_mcp_result(result):\n",
+        "\n",
+        "    if result.is_error:\n",
+        "        return {\n",
+        "            \"error\": [\n",
+        "                item.text\n",
+        "                for item in result.content\n",
+        "                if hasattr(item, \"text\")\n",
+        "            ]\n",
+        "        }\n",
+        "\n",
+        "    if result.structured_content is not None:\n",
+        "        return result.structured_content\n",
+        "\n",
+        "    values = []\n",
+        "\n",
+        "    for item in result.content:\n",
+        "        if hasattr(item, \"text\"):\n",
+        "            try:\n",
+        "                values.append(json.loads(item.text))\n",
+        "            except json.JSONDecodeError:\n",
+        "                values.append(item.text)\n",
+        "\n",
+        "    if len(values) == 1:\n",
+        "        return values[0]\n",
+        "\n",
+        "    return values\n",
+        "\n",
+        "\n",
+        "async def call_mcp_tool(tool_name, arguments=None):\n",
+        "\n",
+        "    if tool_name not in tool_registry:\n",
+        "        return {\"error\": \"Tool not found\"}\n",
+        "\n",
+        "    server_name = tool_registry[tool_name][\"server\"]\n",
+        "\n",
+        "    session = client_sessions[server_name]\n",
+        "\n",
+        "    result = await session.call_tool(\n",
+        "        tool_name,\n",
+        "        arguments or {}\n",
+        "    )\n",
+        "\n",
+        "    return normalize_mcp_result(result)\n",
+        "\n",
+        "\n",
+        "print(\"MCP result normalization ready!\")"
+      ],
+      "id": "DMcBFHYz2LW3"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "PTTYhMNV2LW5"
+      },
+      "source": [
+        "## Cell 28"
+      ],
+      "id": "PTTYhMNV2LW5"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "iSDTRPjf2LW6"
+      },
+      "outputs": [],
+      "source": [
+        "print(\"INVENTORY\")\n",
+        "print(await call_mcp_tool(\"get_inventory\"))\n",
+        "\n",
+        "print(\"\\nFINANCIAL SUMMARY\")\n",
+        "print(await call_mcp_tool(\"calculate_financial_summary\"))\n",
+        "\n",
+        "print(\"\\nPENDING ORDERS\")\n",
+        "print(await call_mcp_tool(\"get_pending_orders\"))"
+      ],
+      "id": "iSDTRPjf2LW6"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "_bK8bMCm2LW8"
+      },
+      "source": [
+        "## Cell 29"
+      ],
+      "id": "_bK8bMCm2LW8"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "823nvXRo2LW9"
+      },
+      "outputs": [],
+      "source": [
+        "async def get_business_snapshot():\n",
+        "\n",
+        "    inventory, finance, orders = await asyncio.gather(\n",
+        "        call_mcp_tool(\"get_inventory\"),\n",
+        "        call_mcp_tool(\"calculate_financial_summary\"),\n",
+        "        call_mcp_tool(\"get_orders\")\n",
+        "    )\n",
+        "\n",
+        "    return {\n",
+        "        \"inventory\": inventory,\n",
+        "        \"finance\": finance,\n",
+        "        \"orders\": orders\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "business_snapshot = await get_business_snapshot()\n",
+        "\n",
+        "print(\"Unified business snapshot created!\")\n",
+        "\n",
+        "print(\"\\nFINANCIAL SUMMARY:\")\n",
+        "print(business_snapshot[\"finance\"])\n",
+        "\n",
+        "print(\"\\nPRODUCT COUNT:\")\n",
+        "print(len(business_snapshot[\"inventory\"]))\n",
+        "\n",
+        "print(\"\\nORDER COUNT:\")\n",
+        "print(len(business_snapshot[\"orders\"]))"
+      ],
+      "id": "823nvXRo2LW9"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "115UFOiQ2LW_"
+      },
+      "source": [
+        "## Cell 30"
+      ],
+      "id": "115UFOiQ2LW_"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "zYqz0s8D2LXA"
+      },
+      "outputs": [],
+      "source": [
+        "async def monitor_business():\n",
+        "\n",
+        "    snapshot = await get_business_snapshot()\n",
+        "\n",
+        "    alerts = []\n",
+        "\n",
+        "    for product in snapshot[\"inventory\"]:\n",
+        "        if product[\"quantity\"] <= product[\"reorder_level\"]:\n",
+        "            alerts.append({\n",
+        "                \"type\": \"LOW STOCK\",\n",
+        "                \"message\": (\n",
+        "                    f\"{product['name']} has only \"\n",
+        "                    f\"{product['quantity']} units remaining.\"\n",
+        "                )\n",
+        "            })\n",
+        "\n",
+        "    for order in snapshot[\"orders\"]:\n",
+        "        if order[\"status\"] == \"pending\":\n",
+        "            alerts.append({\n",
+        "                \"type\": \"PENDING ORDER\",\n",
+        "                \"message\": (\n",
+        "                    f\"Order {order['order_id']} for \"\n",
+        "                    f\"{order['customer_name']} is pending.\"\n",
+        "                )\n",
+        "            })\n",
+        "\n",
+        "    if snapshot[\"finance\"][\"net_profit\"] < 0:\n",
+        "        alerts.append({\n",
+        "            \"type\": \"FINANCIAL WARNING\",\n",
+        "            \"message\": \"The business is operating at a loss.\"\n",
+        "        })\n",
+        "\n",
+        "    return alerts\n",
+        "\n",
+        "\n",
+        "business_alerts = await monitor_business()\n",
+        "\n",
+        "print(\"BUSINESS MONITORING REPORT\")\n",
+        "\n",
+        "for alert in business_alerts:\n",
+        "    print(f\"\\n[{alert['type']}] {alert['message']}\")"
+      ],
+      "id": "zYqz0s8D2LXA"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "-Fe7iy7y2LXC"
+      },
+      "source": [
+        "## Cell 31"
+      ],
+      "id": "-Fe7iy7y2LXC"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "rmw2nPWJ2LXE"
+      },
+      "outputs": [],
+      "source": [
+        "pending_approvals = {}\n",
+        "approval_counter = 0\n",
+        "\n",
+        "WRITE_TOOLS = {\n",
+        "    \"add_stock\"\n",
+        "}\n",
+        "\n",
+        "\n",
+        "def request_approval(tool_name, arguments):\n",
+        "\n",
+        "    global approval_counter\n",
+        "\n",
+        "    if tool_name not in WRITE_TOOLS:\n",
+        "        return {\n",
+        "            \"error\": \"This operation does not require approval.\"\n",
+        "        }\n",
+        "\n",
+        "    approval_counter += 1\n",
+        "\n",
+        "    action_id = approval_counter\n",
+        "\n",
+        "    pending_approvals[action_id] = {\n",
+        "        \"tool\": tool_name,\n",
+        "        \"arguments\": arguments,\n",
+        "        \"status\": \"pending\"\n",
+        "    }\n",
+        "\n",
+        "    return {\n",
+        "        \"action_id\": action_id,\n",
+        "        \"tool\": tool_name,\n",
+        "        \"arguments\": arguments,\n",
+        "        \"status\": \"Awaiting approval\"\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "print(\"Permission and approval system created!\")"
+      ],
+      "id": "rmw2nPWJ2LXE"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "J6Nv4UWB2LXG"
+      },
+      "source": [
+        "## Cell 32"
+      ],
+      "id": "J6Nv4UWB2LXG"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "NNVeJtfe2LXH"
+      },
+      "outputs": [],
+      "source": [
+        "def approve_action(action_id):\n",
+        "\n",
+        "    if action_id not in pending_approvals:\n",
+        "        return {\"error\": \"Approval request not found\"}\n",
+        "\n",
+        "    action = pending_approvals[action_id]\n",
+        "\n",
+        "    if action[\"status\"] != \"pending\":\n",
+        "        return {\"error\": \"Request already processed\"}\n",
+        "\n",
+        "    action[\"status\"] = \"approved\"\n",
+        "\n",
+        "    return {\n",
+        "        \"action_id\": action_id,\n",
+        "        \"status\": \"approved\"\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "def reject_action(action_id):\n",
+        "\n",
+        "    if action_id not in pending_approvals:\n",
+        "        return {\"error\": \"Approval request not found\"}\n",
+        "\n",
+        "    action = pending_approvals[action_id]\n",
+        "\n",
+        "    if action[\"status\"] != \"pending\":\n",
+        "        return {\"error\": \"Request already processed\"}\n",
+        "\n",
+        "    action[\"status\"] = \"rejected\"\n",
+        "\n",
+        "    return {\n",
+        "        \"action_id\": action_id,\n",
+        "        \"status\": \"rejected\"\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "print(\"Approval and rejection mechanisms created!\")"
+      ],
+      "id": "NNVeJtfe2LXH"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "xf5ZNCPO2LXI"
+      },
+      "source": [
+        "## Cell 33"
+      ],
+      "id": "xf5ZNCPO2LXI"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "NHhVHjF62LXK"
+      },
+      "outputs": [],
+      "source": [
+        "for tool in inventory_tools.tools:\n",
+        "    if tool.name == \"add_stock\":\n",
+        "        print(\"TOOL DETAILS:\")\n",
+        "        print(json.dumps(tool.model_dump(), indent=4))"
+      ],
+      "id": "NHhVHjF62LXK"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "9rZkYxAT2LXL"
+      },
+      "source": [
+        "## Cell 34"
+      ],
+      "id": "9rZkYxAT2LXL"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "OSRLs2JF2LXN"
+      },
+      "outputs": [],
+      "source": [
+        "async def _call_mcp_tool(tool_name, arguments=None):\n",
+        "\n",
+        "    server_name = tool_registry[tool_name][\"server\"]\n",
+        "    session = client_sessions[server_name]\n",
+        "\n",
+        "    result = await session.call_tool(tool_name, arguments or {})\n",
+        "    return normalize_mcp_result(result)\n",
+        "\n",
+        "\n",
+        "async def call_mcp_tool(tool_name, arguments=None):\n",
+        "\n",
+        "    if tool_name in WRITE_TOOLS:\n",
+        "        return {\n",
+        "            \"error\": \"Approval required before executing this operation.\"\n",
+        "        }\n",
+        "\n",
+        "    return await _call_mcp_tool(tool_name, arguments)\n",
+        "\n",
+        "\n",
+        "async def execute_approved_action(action_id):\n",
+        "\n",
+        "    if action_id not in pending_approvals:\n",
+        "        return {\"error\": \"Approval request not found\"}\n",
+        "\n",
+        "    action = pending_approvals[action_id]\n",
+        "\n",
+        "    if action[\"status\"] != \"approved\":\n",
+        "        return {\"error\": \"Action has not been approved\"}\n",
+        "\n",
+        "    result = await _call_mcp_tool(\n",
+        "        action[\"tool\"],\n",
+        "        action[\"arguments\"]\n",
+        "    )\n",
+        "\n",
+        "    action[\"result\"] = result\n",
+        "    action[\"status\"] = \"executed\"\n",
+        "\n",
+        "    return {\n",
+        "        \"action_id\": action_id,\n",
+        "        \"status\": \"executed\",\n",
+        "        \"result\": result\n",
+        "    }\n",
+        "\n",
+        "\n",
+        "print(\"Approval-controlled execution system created!\")"
+      ],
+      "id": "OSRLs2JF2LXN"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "pNDbbh4H2LXO"
+      },
+      "source": [
+        "## Cell 35"
+      ],
+      "id": "pNDbbh4H2LXO"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "OE-8oFQh2LXQ"
+      },
+      "outputs": [],
+      "source": [
+        "approval_request = request_approval(\n",
+        "    \"add_stock\",\n",
+        "    {\n",
+        "        \"product_id\": 3,\n",
+        "        \"quantity\": 1\n",
+        "    }\n",
+        ")\n",
+        "\n",
+        "print(json.dumps(approval_request, indent=4))"
+      ],
+      "id": "OE-8oFQh2LXQ"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "IuuLn2NT2LXR"
+      },
+      "source": [
+        "## Cell 36"
+      ],
+      "id": "IuuLn2NT2LXR"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "jxra3kQM2LXT"
+      },
+      "outputs": [],
+      "source": [
+        "approval_result = approve_action(1)\n",
+        "\n",
+        "print(json.dumps(approval_result, indent=4))"
+      ],
+      "id": "jxra3kQM2LXT"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "lEdT4bM42LXU"
+      },
+      "source": [
+        "## Cell 37"
+      ],
+      "id": "lEdT4bM42LXU"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "eHS6Diqw2LXW"
+      },
+      "outputs": [],
+      "source": [
+        "execution_result = await execute_approved_action(1)\n",
+        "\n",
+        "print(json.dumps(execution_result, indent=4))"
+      ],
+      "id": "eHS6Diqw2LXW"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Yhjn2AT-2LXX"
+      },
+      "source": [
+        "## Cell 38"
+      ],
+      "id": "Yhjn2AT-2LXX"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "U5nokMsn2LXY"
+      },
+      "outputs": [],
+      "source": [
+        "mouse_stock = await call_mcp_tool(\n",
+        "    \"check_stock\",\n",
+        "    {\"product_id\": 3}\n",
+        ")\n",
+        "\n",
+        "print(json.dumps(mouse_stock, indent=4))"
+      ],
+      "id": "U5nokMsn2LXY"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "s8RKsbLm2LXa"
+      },
+      "source": [
+        "## Cell 39"
+      ],
+      "id": "s8RKsbLm2LXa"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "JN_Tf06G2LXb"
+      },
+      "outputs": [],
+      "source": [
+        "blocked_result = await call_mcp_tool(\n",
+        "    \"add_stock\",\n",
+        "    {\n",
+        "        \"product_id\": 3,\n",
+        "        \"quantity\": 5\n",
+        "    }\n",
+        ")\n",
+        "\n",
+        "print(json.dumps(blocked_result, indent=4))"
+      ],
+      "id": "JN_Tf06G2LXb"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Yob2ZrtC2LXd"
+      },
+      "source": [
+        "## Cell 40"
+      ],
+      "id": "Yob2ZrtC2LXd"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "glH0MmaY2LXe"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "\n",
+        "print(\"File created:\", os.path.exists('/content/my_notebook.ipynb'))\n",
+        "\n",
+        "if os.path.exists('/content/my_notebook.ipynb'):\n",
+        "    print(\"File size:\", os.path.getsize('/content/my_notebook.ipynb'), \"bytes\")\n",
+        "else:\n",
+        "    print(\"Notebook file was not saved.\")"
+      ],
+      "id": "glH0MmaY2LXe"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
