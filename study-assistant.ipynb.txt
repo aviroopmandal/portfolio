@@ -1,0 +1,318 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "ONg8paSuhtx7"
+      },
+      "source": [
+        "## Cell 1\n"
+      ],
+      "id": "ONg8paSuhtx7"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "BdVWyv-FhtyF"
+      },
+      "outputs": [],
+      "source": [
+        "!pip install -q \\\n",
+        "llama-index-core \\\n",
+        "llama-index-readers-file \\\n",
+        "llama-index-llms-ollama \\\n",
+        "llama-index-embeddings-ollama"
+      ],
+      "id": "BdVWyv-FhtyF"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "nliAYTw1htyM"
+      },
+      "source": [
+        "## Cell 2\n"
+      ],
+      "id": "nliAYTw1htyM"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "fx9MlyA1htyO"
+      },
+      "outputs": [],
+      "source": [
+        "from llama_index.core import Settings\n",
+        "from llama_index.llms.ollama import Ollama\n",
+        "from llama_index.embeddings.ollama import OllamaEmbedding\n",
+        "\n",
+        "# Language model\n",
+        "Settings.llm = Ollama(\n",
+        "    model=\"qwen2.5:0.5b-instruct\",\n",
+        "    base_url=\"http://localhost:11434\",\n",
+        "    request_timeout=180.0,\n",
+        "    context_window=4096\n",
+        ")\n",
+        "\n",
+        "# Embedding model\n",
+        "Settings.embed_model = OllamaEmbedding(\n",
+        "    model_name=\"all-minilm\",\n",
+        "    base_url=\"http://localhost:11434\"\n",
+        ")\n",
+        "\n",
+        "# Chunking settings\n",
+        "Settings.chunk_size = 512\n",
+        "Settings.chunk_overlap = 80\n",
+        "\n",
+        "print(\"Ollama models connected to LlamaIndex!\")"
+      ],
+      "id": "fx9MlyA1htyO"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Ec5bwNu5htyR"
+      },
+      "source": [
+        "## Cell 3\n"
+      ],
+      "id": "Ec5bwNu5htyR"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "nxfeqPnRhtyT"
+      },
+      "outputs": [],
+      "source": [
+        "from google.colab import files\n",
+        "from llama_index.core import SimpleDirectoryReader\n",
+        "\n",
+        "uploaded = files.upload()\n",
+        "\n",
+        "pdf_path = next(iter(uploaded))\n",
+        "\n",
+        "documents = SimpleDirectoryReader(\n",
+        "    input_files=[pdf_path]\n",
+        ").load_data()\n",
+        "\n",
+        "print(\"Document loaded successfully!\")\n",
+        "print(\"Total document sections:\", len(documents))"
+      ],
+      "id": "nxfeqPnRhtyT"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "uhAR5Uh3htyW"
+      },
+      "source": [
+        "## Cell 4\n"
+      ],
+      "id": "uhAR5Uh3htyW"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "-OOpqDuUhtyY"
+      },
+      "outputs": [],
+      "source": [
+        "import requests\n",
+        "\n",
+        "try:\n",
+        "    response = requests.get(\n",
+        "        \"http://localhost:11434\",\n",
+        "        timeout=5\n",
+        "    )\n",
+        "    print(response.text)\n",
+        "\n",
+        "except Exception as e:\n",
+        "    print(\"Ollama is not responding:\", e)"
+      ],
+      "id": "-OOpqDuUhtyY"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "zO2S_oXqhtyb"
+      },
+      "source": [
+        "## Cell 5\n"
+      ],
+      "id": "zO2S_oXqhtyb"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "rQGGJORWhtyd"
+      },
+      "outputs": [],
+      "source": [
+        "import subprocess\n",
+        "import time\n",
+        "import requests\n",
+        "\n",
+        "ollama_process = subprocess.Popen(\n",
+        "    [\"ollama\", \"serve\"],\n",
+        "    stdout=subprocess.DEVNULL,\n",
+        "    stderr=subprocess.DEVNULL\n",
+        ")\n",
+        "\n",
+        "for i in range(30):\n",
+        "    try:\n",
+        "        response = requests.get(\n",
+        "            \"http://localhost:11434\",\n",
+        "            timeout=2\n",
+        "        )\n",
+        "\n",
+        "        if response.status_code == 200:\n",
+        "            print(\"Ollama server restarted successfully!\")\n",
+        "            break\n",
+        "\n",
+        "    except requests.exceptions.RequestException:\n",
+        "        time.sleep(2)\n",
+        "\n",
+        "else:\n",
+        "    raise RuntimeError(\"Ollama failed to start.\")"
+      ],
+      "id": "rQGGJORWhtyd"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "or06gDgahtyf"
+      },
+      "source": [
+        "## Cell 6\n"
+      ],
+      "id": "or06gDgahtyf"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Dr3U69z1htyh"
+      },
+      "outputs": [],
+      "source": [
+        "from llama_index.core import VectorStoreIndex\n",
+        "\n",
+        "index = VectorStoreIndex.from_documents(\n",
+        "    documents,\n",
+        "    show_progress=True\n",
+        ")\n",
+        "\n",
+        "print(\"RAG index created successfully!\")"
+      ],
+      "id": "Dr3U69z1htyh"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "tZziUFXmhtyj"
+      },
+      "source": [
+        "## Cell 7\n"
+      ],
+      "id": "tZziUFXmhtyj"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "PazU1XTZhtyl"
+      },
+      "outputs": [],
+      "source": [
+        "query_engine = index.as_query_engine(\n",
+        "    similarity_top_k=3,\n",
+        "    response_mode=\"compact\"\n",
+        ")\n",
+        "\n",
+        "print(\"Your research assistant is ready!\")"
+      ],
+      "id": "PazU1XTZhtyl"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "FfhL9ydbhtyn"
+      },
+      "source": [
+        "## Cell 8\n"
+      ],
+      "id": "FfhL9ydbhtyn"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "fRvPJz6Jhtyo"
+      },
+      "outputs": [],
+      "source": [
+        "def ask_question(question):\n",
+        "\n",
+        "    response = query_engine.query(question)\n",
+        "\n",
+        "    print(\"\\nANSWER:\\n\")\n",
+        "    print(response)\n",
+        "\n",
+        "    print(\"\\nRETRIEVED SOURCES:\\n\")\n",
+        "\n",
+        "    for i, source in enumerate(response.source_nodes):\n",
+        "\n",
+        "        print(\"Source:\", i + 1)\n",
+        "        print(\"Metadata:\", source.node.metadata)\n",
+        "        print(\"Relevance score:\", source.score)\n",
+        "        print(\"Text:\", source.node.text[:400])\n",
+        "        print(\"-\" * 50)"
+      ],
+      "id": "fRvPJz6Jhtyo"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "0SO9PTOlhtyr"
+      },
+      "source": [
+        "## Cell 9\n"
+      ],
+      "id": "0SO9PTOlhtyr"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "QkePBIsdhtys"
+      },
+      "outputs": [],
+      "source": [
+        "ask_question(\n",
+        "    \"What is the Transformer architecture?\"\n",
+        ")"
+      ],
+      "id": "QkePBIsdhtys"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
