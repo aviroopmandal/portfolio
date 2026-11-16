@@ -1,0 +1,247 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "fC4laBgSzW3G"
+      },
+      "source": [
+        "## Cell 1"
+      ],
+      "id": "fC4laBgSzW3G"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "g6Wc8nr2zW3O"
+      },
+      "outputs": [],
+      "source": [
+        "!pip install -q nbformat gradio"
+      ],
+      "id": "g6Wc8nr2zW3O"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "mmups9_czW3T"
+      },
+      "source": [
+        "## Cell 2"
+      ],
+      "id": "mmups9_czW3T"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "hOuQUmqizW3V"
+      },
+      "outputs": [],
+      "source": [
+        "import os\n",
+        "import re\n",
+        "import nbformat\n",
+        "import gradio as gr\n",
+        "\n",
+        "from pathlib import Path"
+      ],
+      "id": "hOuQUmqizW3V"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "UFSe4DPyzW3X"
+      },
+      "source": [
+        "## Cell 3"
+      ],
+      "id": "UFSe4DPyzW3X"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "peyR1Lt3zW3Y"
+      },
+      "outputs": [],
+      "source": [
+        "def convert_markdown_to_notebook(file_path):\n",
+        "\n",
+        "    if file_path is None:\n",
+        "        raise gr.Error(\"Please upload a Markdown file.\")\n",
+        "\n",
+        "    file_path = Path(file_path)\n",
+        "\n",
+        "    if file_path.suffix.lower() != \".md\":\n",
+        "        raise gr.Error(\"Please upload a .md file.\")\n",
+        "\n",
+        "    with open(file_path, \"r\", encoding=\"utf-8\") as file:\n",
+        "        content = file.read()\n",
+        "\n",
+        "    notebook = nbformat.v4.new_notebook()\n",
+        "\n",
+        "    cells = []\n",
+        "    markdown_buffer = []\n",
+        "    code_buffer = []\n",
+        "\n",
+        "    inside_code = False\n",
+        "    code_language = \"\"\n",
+        "\n",
+        "    lines = content.splitlines()\n",
+        "\n",
+        "    for line in lines:\n",
+        "\n",
+        "        fence = re.match(r\"^\\s*(`{3,}|~{3,})(.*)$\", line)\n",
+        "\n",
+        "        if fence:\n",
+        "\n",
+        "            if not inside_code:\n",
+        "\n",
+        "                if markdown_buffer:\n",
+        "                    markdown_text = \"\\n\".join(markdown_buffer).strip()\n",
+        "\n",
+        "                    if markdown_text:\n",
+        "                        cells.append(\n",
+        "                            nbformat.v4.new_markdown_cell(markdown_text)\n",
+        "                        )\n",
+        "\n",
+        "                    markdown_buffer = []\n",
+        "\n",
+        "                inside_code = True\n",
+        "                fence_character = fence.group(1)[0]\n",
+        "                fence_length = len(fence.group(1))\n",
+        "                code_language = fence.group(2).strip().split()[0] if fence.group(2).strip() else \"\"\n",
+        "\n",
+        "            elif fence.group(1)[0] == fence_character and len(fence.group(1)) >= fence_length:\n",
+        "\n",
+        "                code_text = \"\\n\".join(code_buffer)\n",
+        "\n",
+        "                code_cell = nbformat.v4.new_code_cell(code_text)\n",
+        "\n",
+        "                if code_language:\n",
+        "                    code_cell.metadata[\"language\"] = code_language\n",
+        "\n",
+        "                cells.append(code_cell)\n",
+        "\n",
+        "                code_buffer = []\n",
+        "                inside_code = False\n",
+        "                code_language = \"\"\n",
+        "\n",
+        "            continue\n",
+        "\n",
+        "        if inside_code:\n",
+        "            code_buffer.append(line)\n",
+        "        else:\n",
+        "            markdown_buffer.append(line)\n",
+        "\n",
+        "    if inside_code:\n",
+        "        raise gr.Error(\"An unclosed code block was found in the Markdown file.\")\n",
+        "\n",
+        "    if markdown_buffer:\n",
+        "        markdown_text = \"\\n\".join(markdown_buffer).strip()\n",
+        "\n",
+        "        if markdown_text:\n",
+        "            cells.append(\n",
+        "                nbformat.v4.new_markdown_cell(markdown_text)\n",
+        "            )\n",
+        "\n",
+        "    notebook.cells = cells\n",
+        "\n",
+        "    notebook.metadata = {\n",
+        "        \"kernelspec\": {\n",
+        "            \"display_name\": \"Python 3\",\n",
+        "            \"language\": \"python\",\n",
+        "            \"name\": \"python3\"\n",
+        "        },\n",
+        "        \"language_info\": {\n",
+        "            \"name\": \"python\"\n",
+        "        }\n",
+        "    }\n",
+        "\n",
+        "    output_path = file_path.with_name(\n",
+        "        file_path.stem + \".ipynb\"\n",
+        "    )\n",
+        "\n",
+        "    nbformat.validate(notebook)\n",
+        "\n",
+        "    nbformat.write(notebook, output_path)\n",
+        "\n",
+        "    return str(output_path)"
+      ],
+      "id": "peyR1Lt3zW3Y"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "XNIkjhmMzW3b"
+      },
+      "source": [
+        "## Cell 4"
+      ],
+      "id": "XNIkjhmMzW3b"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "Kbqrwd-xzW3d"
+      },
+      "outputs": [],
+      "source": [
+        "with gr.Blocks(title=\"Markdown to Notebook Converter\") as app:\n",
+        "\n",
+        "    gr.Markdown(\n",
+        "        \"\"\"\n",
+        "        # Markdown to Jupyter Notebook Converter\n",
+        "\n",
+        "        Upload a Markdown file and convert it into\n",
+        "        a downloadable Jupyter Notebook.\n",
+        "\n",
+        "        - Markdown text → Markdown cells\n",
+        "        - Python code blocks → Code cells\n",
+        "        \"\"\"\n",
+        "    )\n",
+        "\n",
+        "    input_file = gr.File(\n",
+        "        label=\"Upload Markdown File\",\n",
+        "        type=\"filepath\"\n",
+        "    )\n",
+        "\n",
+        "    convert_button = gr.Button(\n",
+        "        \"Convert to Notebook\",\n",
+        "        variant=\"primary\"\n",
+        "    )\n",
+        "\n",
+        "    output_file = gr.File(\n",
+        "        label=\"Download Jupyter Notebook\"\n",
+        "    )\n",
+        "\n",
+        "    convert_button.click(\n",
+        "        fn=convert_markdown_to_notebook,\n",
+        "        inputs=input_file,\n",
+        "        outputs=output_file\n",
+        "    )\n",
+        "\n",
+        "app.launch(share=True)"
+      ],
+      "id": "Kbqrwd-xzW3d"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
