@@ -1,0 +1,195 @@
+{
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "Yh8SNdr7gRnb"
+      },
+      "source": [
+        "## Cell 1\n"
+      ],
+      "id": "Yh8SNdr7gRnb"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "snUfyvGagRnm"
+      },
+      "outputs": [],
+      "source": [
+        "!pip -q install python-docx"
+      ],
+      "id": "snUfyvGagRnm"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "CZBaOsBFgRnt"
+      },
+      "source": [
+        "## Cell 2\n"
+      ],
+      "id": "CZBaOsBFgRnt"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "nfcx8vCrgRnv"
+      },
+      "outputs": [],
+      "source": [
+        "from google.colab import files\n",
+        "\n",
+        "uploaded = files.upload()\n",
+        "\n",
+        "md_filename = next(iter(uploaded))\n",
+        "\n",
+        "print(\"Uploaded:\", md_filename)\n",
+        "print(\"Ready to convert!\")"
+      ],
+      "id": "nfcx8vCrgRnv"
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "KB17Bi8fgRnz"
+      },
+      "source": [
+        "## Cell 3\n"
+      ],
+      "id": "KB17Bi8fgRnz"
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "6kzZ9usrgRn1"
+      },
+      "outputs": [],
+      "source": [
+        "import re\n",
+        "from docx import Document\n",
+        "from docx.shared import Pt, Inches, RGBColor\n",
+        "from docx.oxml import OxmlElement\n",
+        "from docx.oxml.ns import qn\n",
+        "\n",
+        "# Create document\n",
+        "doc = Document()\n",
+        "\n",
+        "# Page margins\n",
+        "section = doc.sections[0]\n",
+        "section.top_margin = Inches(0.7)\n",
+        "section.bottom_margin = Inches(0.7)\n",
+        "section.left_margin = Inches(0.8)\n",
+        "section.right_margin = Inches(0.8)\n",
+        "\n",
+        "# Document title\n",
+        "doc.add_heading(\"Colab Notebook Export\", 0)\n",
+        "\n",
+        "# Code formatting function\n",
+        "def add_code_block(lines):\n",
+        "    paragraph = doc.add_paragraph()\n",
+        "    paragraph.paragraph_format.left_indent = Inches(0.15)\n",
+        "    paragraph.paragraph_format.space_after = Pt(8)\n",
+        "\n",
+        "    shading = OxmlElement(\"w:shd\")\n",
+        "    shading.set(qn(\"w:fill\"), \"F0F0F0\")\n",
+        "    paragraph._p.get_or_add_pPr().append(shading)\n",
+        "\n",
+        "    run = paragraph.add_run(\"\\n\".join(lines))\n",
+        "    run.font.name = \"Consolas\"\n",
+        "    run.font.size = Pt(9)\n",
+        "    run.font.color.rgb = RGBColor(40, 40, 40)\n",
+        "\n",
+        "# Read Markdown\n",
+        "with open(md_filename, \"r\", encoding=\"utf-8\") as f:\n",
+        "    content = f.read()\n",
+        "\n",
+        "lines = content.splitlines()\n",
+        "\n",
+        "in_code = False\n",
+        "code_lines = []\n",
+        "\n",
+        "for line in lines:\n",
+        "\n",
+        "    # Start of code block\n",
+        "    if line.startswith(\"```\"):\n",
+        "        if not in_code:\n",
+        "            in_code = True\n",
+        "            code_lines = []\n",
+        "        else:\n",
+        "            add_code_block(code_lines)\n",
+        "            in_code = False\n",
+        "        continue\n",
+        "\n",
+        "    if in_code:\n",
+        "        code_lines.append(line)\n",
+        "        continue\n",
+        "\n",
+        "    # Original notebook code-cell numbering\n",
+        "    match = re.match(r\"^### Code cell (\\d+)\", line)\n",
+        "\n",
+        "    if match:\n",
+        "        doc.add_heading(\n",
+        "            f\"Code Cell {match.group(1)}\",\n",
+        "            level=2\n",
+        "        )\n",
+        "        continue\n",
+        "\n",
+        "    # Markdown headings\n",
+        "    heading = re.match(r\"^(#{1,6})\\s+(.+)\", line)\n",
+        "\n",
+        "    if heading:\n",
+        "        level = min(len(heading.group(1)), 3)\n",
+        "        doc.add_heading(heading.group(2), level=level)\n",
+        "        continue\n",
+        "\n",
+        "    # Bullet points\n",
+        "    if line.startswith(\"- \") or line.startswith(\"* \"):\n",
+        "        doc.add_paragraph(\n",
+        "            line[2:],\n",
+        "            style=\"List Bullet\"\n",
+        "        )\n",
+        "        continue\n",
+        "\n",
+        "    # Numbered lists\n",
+        "    if re.match(r\"^\\d+\\.\\s+\", line):\n",
+        "        text = re.sub(r\"^\\d+\\.\\s+\", \"\", line)\n",
+        "        doc.add_paragraph(text, style=\"List Number\")\n",
+        "        continue\n",
+        "\n",
+        "    # Normal text\n",
+        "    if line.strip():\n",
+        "        doc.add_paragraph(line)\n",
+        "\n",
+        "# Save document\n",
+        "output_path = \"/content/Colab_Notebook_Export.docx\"\n",
+        "\n",
+        "doc.save(output_path)\n",
+        "\n",
+        "print(\"DOCUMENT CREATED SUCCESSFULLY!\")\n",
+        "print(\"Location:\", output_path)\n",
+        "\n",
+        "# Download\n",
+        "files.download(output_path)"
+      ],
+      "id": "6kzZ9usrgRn1"
+    }
+  ],
+  "metadata": {
+    "colab": {
+      "provenance": []
+    },
+    "kernelspec": {
+      "display_name": "Python 3",
+      "name": "python3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "nbformat": 4,
+  "nbformat_minor": 5
+}
